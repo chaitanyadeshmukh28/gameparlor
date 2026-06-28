@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Intercept — phosphor terminal on black, amber warning lamps, code-sheet paper. */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: theme('fontFamily.mono');
+  color: #c8f7dd;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #0a1f16 0%, #04080a 55%, #020405 100%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+  letter-spacing: 0.01em;
+}
+
+/* CRT scanlines + faint phosphor grid, painted over everything but pointer-through. */
+.crt-overlay {
+  position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px, transparent 1px, transparent 3px);
+  mix-blend-mode: multiply;
+}
+.crt-overlay::after { /* slow scanning beam */
+  content: ''; position: absolute; left: 0; right: 0; height: 38%;
+  background: linear-gradient(180deg, transparent, rgba(88,247,160,0.06), transparent);
+  animation: sweep 7s linear infinite;
+}
+.crt-vignette {
+  position: fixed; inset: 0; pointer-events: none; z-index: 49;
+  box-shadow: inset 0 0 140px 30px rgba(0,0,0,0.85);
+}
+
+/* Aged code-sheet paper used for keyword slots. */
+.sheet-paper {
+  background-color: #d8cda4;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(120,110,80,0.10) 0 1px, transparent 1px 22px),
+    radial-gradient(140% 120% at 20% 0%, rgba(255,250,235,0.6), rgba(190,180,150,0.2));
+  color: #1b1d12;
+}
+
+.glow-text { text-shadow: 0 0 8px currentColor; }
+.text-stroke { -webkit-text-stroke: 1px rgba(0,0,0,0.35); }
+
+/* Visible keyboard focus everywhere. */
+:focus-visible { outline: 2px solid #58f7a0; outline-offset: 2px; }
+button:focus-visible { outline: 2px solid #58f7a0; outline-offset: 2px; }
+
+::placeholder { color: rgba(88,247,160,0.4); }
+
+input { font-family: theme('fontFamily.mono'); }
+
+/* Thin custom scrollbars for any inner scroll regions. */
+.thin-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(88,247,160,0.3); border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .crt-overlay::after { display: none; }
+}

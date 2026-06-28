@@ -1,0 +1,201 @@
+import { CoupGame } from './game.js';
+
+let pass = 0, fail = 0;
+const ok = (cond, msg) => { if (cond) { pass++; } else { fail++; console.error('  ✗ ' + msg); } };
+
+// Force a player's hand for deterministic tests.
+const setHand = (g, name, chars) => {
+  const p = g.players.find((x) => x.name === name);
+  p.influence = chars.map((c) => ({ char: c, revealed: false }));
+};
+
+function newGame() {
+  const g = new CoupGame('TEST');
+  g.addPlayer('a', 'Ann');
+  g.addPlayer('b', 'Bo');
+  g.addPlayer('c', 'Cy');
+  g.start('a');
+  return g;
+}
+
+// 1. Income
+(() => {
+  const g = newGame();
+  const before = g.byId('a').coins;
+  g.declare('a', 'income');
+  ok(g.byId('a').coins === before + 1, 'income gives +1');
+  ok(g.current().id === 'b', 'turn advances after income');
+})();
+
+// 2. Tax unchallenged
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  g.declare('a', 'tax');
+  ok(g.phase === 'response', 'tax opens a response window');
+  g.respond('b', 'pass'); g.respond('c', 'pass');
+  ok(g.byId('a').coins === 5, 'tax gives +3 when unchallenged (2+3)');
+  ok(g.current().id === 'b', 'turn advances after tax');
+})();
+
+// 3. Tax challenged, claimant honest -> challenger loses a card
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  setHand(g, 'Bo', ['contessa', 'contessa']);
+  g.declare('a', 'tax');
+  g.respond('b', 'challenge');
+  ok(g.phase === 'lose' && g.pendingLoss.playerId === 'b', 'wrong challenger must lose influence');
+  g.loseInfluence('b', 0);
+  ok(g.byId('b').influence.filter((c) => c.revealed).length === 1, 'Bo lost one card');
+  ok(g.byId('a').coins === 5, 'honest tax still pays after winning challenge');
+})();
+
+// 4. Tax challenged, claimant bluffing -> claimant loses, no coins
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['captain', 'captain']);
+  g.declare('a', 'tax');
+  g.respond('b', 'challenge');
+  ok(g.pendingLoss.playerId === 'a', 'caught bluffer must lose influence');
+  g.loseInfluence('a', 0);
+  ok(g.byId('a').coins === 2, 'bluffed tax pays nothing');
+})();
+
+// 5. Foreign aid blocked by Duke (unchallenged block) -> no coins
+(() => {
+  const g = newGame();
+  g.declare('a', 'foreign_aid');
+  g.respond('b', 'block', 'duke');
+  ok(g.phase === 'response' && g.pending.block.blocker === 'b', 'block opens a block-challenge window');
+  g.respond('a', 'pass'); g.respond('c', 'pass');
+  ok(g.byId('a').coins === 2, 'blocked foreign aid yields nothing');
+  ok(g.current().id === 'b', 'turn advances after blocked foreign aid');
+})();
+
+// 6. Foreign aid block challenged, blocker bluffing -> aid applies
+(() => {
+  const g = newGame();
+  setHand(g, 'Bo', ['captain', 'captain']); // no duke
+  g.declare('a', 'foreign_aid');
+  g.respond('b', 'block', 'duke');
+  g.respond('a', 'challenge');
+  ok(g.pendingLoss.playerId === 'b', 'bluffing blocker loses influence');
+  g.loseInfluence('b', 0);
+  ok(g.byId('a').coins === 4, 'foreign aid applies after block is broken');
+})();
+
+// 7. Assassinate unblocked -> target loses card, 3 coins spent
+(() => {
+  const g = newGame();
+  g.byId('a').coins = 5;
+  setHand(g, 'Ann', ['assassin', 'duke']);
+  g.declare('a', 'assassinate', 'b');
+  g.respond('b', 'pass'); g.respond('c', 'pass');
+  ok(g.phase === 'lose' && g.pendingLoss.playerId === 'b', 'assassination forces target to lose');
+  g.loseInfluence('b', 0);
+  ok(g.byId('a').coins === 2, 'assassinate costs 3');
+})();
+
+// 8. Assassinate blocked by Contessa (unchallenged) -> target safe, coins gone
+(() => {
+  const g = newGame();
+  g.byId('a').coins = 5;
+  setHand(g, 'Ann', ['assassin', 'duke']);
+  setHand(g, 'Bo', ['contessa', 'captain']);
+  g.declare('a', 'assassinate', 'b');
+  g.respond('b', 'block', 'contessa');
+  g.respond('a', 'pass'); g.respond('c', 'pass');
+  ok(g.byId('b').influence.every((c) => !c.revealed), 'contessa block saves the target');
+  ok(g.byId('a').coins === 2, 'coins still spent on blocked assassination');
+})();
+
+// 9. Assassinate, assassin caught bluffing -> refund + assassin loses
+(() => {
+  const g = newGame();
+  g.byId('a').coins = 5;
+  setHand(g, 'Ann', ['duke', 'captain']); // no assassin
+  g.declare('a', 'assassinate', 'b');
+  g.respond('b', 'challenge');
+  ok(g.pendingLoss.playerId === 'a', 'caught assassin loses influence');
+  g.loseInfluence('a', 0);
+  ok(g.byId('a').coins === 5, 'caught assassin is refunded the 3 coins');
+  ok(g.byId('b').influence.every((c) => !c.revealed), 'target unharmed when assassin bluffs');
+})();
+
+// 10. Steal -> moves up to 2 coins
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['captain', 'duke']);
+  g.byId('b').coins = 5;
+  g.declare('a', 'steal', 'b');
+  g.respond('b', 'pass'); g.respond('c', 'pass');
+  ok(g.byId('a').coins === 4 && g.byId('b').coins === 3, 'steal moves 2 coins');
+})();
+
+// 11. Steal blocked by Ambassador
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['captain', 'duke']);
+  setHand(g, 'Bo', ['ambassador', 'duke']);
+  g.byId('b').coins = 5;
+  g.declare('a', 'steal', 'b');
+  g.respond('b', 'block', 'ambassador');
+  g.respond('a', 'pass'); g.respond('c', 'pass');
+  ok(g.byId('a').coins === 2 && g.byId('b').coins === 5, 'ambassador blocks the steal');
+})();
+
+// 12. Coup forces a loss and costs 7
+(() => {
+  const g = newGame();
+  g.byId('a').coins = 7;
+  g.declare('a', 'coup', 'b');
+  ok(g.phase === 'lose' && g.pendingLoss.playerId === 'b', 'coup forces target loss');
+  g.loseInfluence('b', 0);
+  ok(g.byId('a').coins === 0, 'coup costs 7');
+})();
+
+// 13. Forced coup at 10 coins
+(() => {
+  const g = newGame();
+  g.byId('a').coins = 10;
+  const r = g.declare('a', 'income');
+  ok(r.error, 'cannot take income with 10+ coins');
+})();
+
+// 14. Exchange swaps cards
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  g.declare('a', 'exchange');
+  g.respond('b', 'pass'); g.respond('c', 'pass');
+  ok(g.phase === 'exchange' && g.exchangeFor('a').cards.length === 4, 'exchange offers 4 cards');
+  const r = g.finishExchange('a', [0, 1]);
+  ok(!r.error && g.alive(g.byId('a')) === 2, 'exchange keeps the right count');
+  ok(g.current().id === 'b', 'turn advances after exchange');
+})();
+
+// 15. Win detection
+(() => {
+  const g = newGame();
+  g.players = g.players.slice(0, 2);
+  setHand(g, 'Ann', ['duke', 'captain']);
+  setHand(g, 'Bo', ['contessa']);
+  g.byId('a').coins = 7;
+  g.declare('a', 'coup', 'b');
+  g.loseInfluence('b', 0);
+  ok(g.phase === 'over' && g.winner === 'a', 'last player standing wins');
+})();
+
+// 16. Private views hide opponents' cards
+(() => {
+  const g = newGame();
+  const view = g.viewFor('a');
+  const me = view.players.find((p) => p.id === 'a');
+  const them = view.players.find((p) => p.id === 'b');
+  ok(me.cards.every((c) => c.char !== null), 'you can see your own cards');
+  ok(them.cards.every((c) => c.char === null), "you cannot see opponents' face-down cards");
+})();
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Quest — Arthurian heraldry ─────────────────────────────────────────── */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: "EB Garamond", Georgia, serif;
+  color: #efe7d2;
+  background:
+    radial-gradient(1100px 620px at 50% -8%, rgba(55,82,127,0.55), transparent 60%),
+    radial-gradient(900px 520px at 50% 118%, rgba(94,15,29,0.30), transparent 60%),
+    #0d1424;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Subtle woven-cloth / parchment grain over the steel night. */
+body::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  opacity: 0.05;
+  background-image:
+    repeating-linear-gradient(45deg, #c9a23f 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(-45deg, #37527f 0 1px, transparent 1px 7px);
+}
+#root { position: relative; z-index: 1; }
+
+.font-display { font-family: "Cinzel", Georgia, serif; }
+
+/* Illuminated drop-cap / wordmark gold gradient. */
+.gold-leaf {
+  background: linear-gradient(177deg, #f4dd8e 0%, #e8c766 26%, #c9a23f 58%, #8a6d22 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,0.45));
+}
+.tracking-emblem { letter-spacing: 0.22em; }
+
+/* Heraldic small-caps eyebrow. */
+.eyebrow {
+  font-family: "Cinzel", serif; font-weight: 600;
+  letter-spacing: 0.32em; text-transform: uppercase;
+  font-size: 0.62rem; color: #c9a23f;
+}
+
+/* Engraved card / panel surface. */
+.panel {
+  background: linear-gradient(180deg, rgba(36,58,99,0.55), rgba(13,20,36,0.72));
+  border: 1px solid rgba(201,162,63,0.28);
+  box-shadow: 0 10px 30px -12px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* Focus ring: visible, gold, on every interactive element. */
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #e8c766; outline-offset: 2px; border-radius: 6px;
+}
+
+/* Hide scrollbars on the inner scroll panes but keep them scrollable. */
+.no-bar::-webkit-scrollbar { width: 0; height: 0; }
+.no-bar { scrollbar-width: none; }
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232,199,102,0.0); }
+  50% { box-shadow: 0 0 0 4px rgba(232,199,102,0.18); }
+}
+.pulse-leader { animation: pulse-gold 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}

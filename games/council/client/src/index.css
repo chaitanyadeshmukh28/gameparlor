@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The Council — a candle-lit guild chamber. */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.body');
+  color: theme('colors.parch.DEFAULT');
+  background-color: #070d0a;
+  /* Candlelight pooling over forest-green felt, panelled in shadow. */
+  background-image:
+    radial-gradient(110% 80% at 50% -8%, rgba(201,168,106,0.13), transparent 55%),
+    radial-gradient(90% 70% at 50% 42%, rgba(31,63,55,0.55), transparent 72%),
+    radial-gradient(140% 130% at 50% 118%, #050907, transparent 60%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* Faint woven-felt grain over the whole chamber. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+::selection { background: rgba(201,168,106,0.35); color: #fff; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(201,168,106,0.3); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+*:focus-visible {
+  outline: 2px solid theme('colors.brass.bright');
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@layer components {
+  .eyebrow {
+    @apply font-mono uppercase text-brass-dim;
+    font-size: 0.6rem;
+    letter-spacing: 0.34em;
+  }
+
+  /* Brass engraved nameplate label. */
+  .nameplate {
+    @apply font-display uppercase text-brass-bright;
+    letter-spacing: 0.18em;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.6);
+  }
+
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5
+           font-body text-base font-semibold tracking-wide transition-all duration-150
+           disabled:cursor-not-allowed disabled:opacity-40 select-none;
+  }
+  /* The brass seal button — primary action. */
+  .btn-brass {
+    @apply btn text-chamber-deep;
+    background: linear-gradient(180deg, #e8d49a, #c9a86a 58%, #9a8049);
+    box-shadow: theme('boxShadow.brass');
+  }
+  .btn-brass:hover:not(:disabled) { filter: brightness(1.06); }
+  .btn-brass:active:not(:disabled) { transform: translateY(1px); }
+
+  .btn-ghost {
+    @apply btn border text-parch;
+    border-color: rgba(201,168,106,0.32);
+    background: rgba(201,168,106,0.05);
+  }
+  .btn-ghost:hover:not(:disabled) { background: rgba(201,168,106,0.12); }
+
+  .btn-wax {
+    @apply btn text-parch;
+    background: linear-gradient(180deg, #c25149, #a23b34 60%, #7a2a24);
+    box-shadow: 0 8px 20px -10px rgba(176,70,60,0.8);
+  }
+
+  /* A panel of dark forest wood with a brass hairline. */
+  .panel {
+    @apply rounded-2xl border;
+    border-color: rgba(201,168,106,0.18);
+    background:
+      linear-gradient(180deg, rgba(22,41,29,0.92), rgba(12,22,17,0.92));
+    box-shadow: 0 18px 40px -24px rgba(0,0,0,0.9), 0 1px 0 rgba(201,168,106,0.08) inset;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

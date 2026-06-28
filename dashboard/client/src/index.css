@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.sans');
+  color: theme('colors.ivory.DEFAULT');
+  background-color: #0d0b16;
+  /* After-hours salon: a warm pool of brass light fading into deep aubergine. */
+  background-image:
+    radial-gradient(120% 80% at 50% -8%, rgba(216,184,120,0.10), transparent 55%),
+    radial-gradient(90% 60% at 50% 42%, rgba(58,44,86,0.45), transparent 72%),
+    radial-gradient(140% 120% at 50% 118%, #08070f, transparent 60%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* Fine paper grain over the felt. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  z-index: 0;
+}
+
+::selection { background: rgba(216,184,120,0.32); color: #fff; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: rgba(216,184,120,0.22); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 2px solid theme('colors.brass.DEFAULT');
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+a:focus:not(:focus-visible) { outline: none; }
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-[0.66rem] uppercase tracking-[0.34em] text-brass/80;
+  }
+
+  /* Champagne-foil wordmark — the parlor's neon-by-candlelight sign. */
+  .foil-text {
+    background: linear-gradient(176deg, #f6eccf 0%, #e3c587 42%, #c79a4f 70%, #f0deab 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* Thin deco hairline with center diamond — a recurring structural mark. */
+  .deco-rule {
+    @apply flex items-center justify-center gap-3 text-brass/50;
+  }
+  .deco-rule::before, .deco-rule::after {
+    content: '';
+    height: 1px; width: clamp(2rem, 14vw, 7rem);
+    background: linear-gradient(90deg, transparent, rgba(216,184,120,0.55));
+  }
+  .deco-rule::after { transform: scaleX(-1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}

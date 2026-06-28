@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.sans');
+  color: theme('colors.parch.DEFAULT');
+  background-color: #070809;
+  /* Ops room: a pool of brass desk-light over ink, red & blue command glows. */
+  background-image:
+    radial-gradient(120% 80% at 50% -8%, rgba(216,184,120,0.08), transparent 55%),
+    radial-gradient(70% 60% at 8% 108%, rgba(196,69,63,0.10), transparent 60%),
+    radial-gradient(70% 60% at 92% 108%, rgba(63,123,196,0.10), transparent 60%),
+    radial-gradient(140% 120% at 50% 120%, #050506, transparent 60%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* Faint dossier paper grain over everything. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+::selection { background: rgba(216,184,120,0.35); color: #fff; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(176,141,79,0.32); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible {
+  outline: 2px solid theme('colors.brass.bright');
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-[0.6rem] uppercase tracking-[0.34em] text-manila-dim;
+  }
+  .stencil {
+    font-family: theme('fontFamily.display');
+    letter-spacing: 0.04em;
+  }
+
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-sm px-4 py-2.5
+           font-sans text-sm font-semibold uppercase tracking-[0.12em] transition-all duration-150
+           disabled:cursor-not-allowed disabled:opacity-40 select-none;
+  }
+  .btn-brass {
+    @apply btn text-ink-deep;
+    background: linear-gradient(180deg, #e6cf9a, #b08d4f 58%, #856a36);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.4) inset, 0 8px 20px -10px rgba(216,184,120,0.8);
+  }
+  .btn-brass:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }
+  .btn-brass:active:not(:disabled) { transform: translateY(0); filter: brightness(0.95); }
+  .btn-ghost {
+    @apply btn border border-manila/20 bg-white/[0.02] text-parch hover:border-brass/60 hover:bg-white/[0.05];
+  }
+  .btn-red {
+    @apply btn border border-red/50 bg-red/20 text-red-bright hover:bg-red/30;
+  }
+  .btn-blue {
+    @apply btn border border-blue/50 bg-blue/20 text-blue-bright hover:bg-blue/30;
+  }
+
+  .panel {
+    @apply rounded-md border border-manila/10 bg-ink-panel/80 backdrop-blur-md;
+    box-shadow: 0 30px 60px -30px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  /* A brass-cornered dossier frame. */
+  .frame {
+    @apply relative rounded-md border border-brass/25 bg-ink-raised/70;
+    background-image: linear-gradient(180deg, rgba(216,184,120,0.04), transparent 40%);
+  }
+
+  .field {
+    @apply w-full rounded-sm border border-manila/20 bg-ink-deep/80 px-4 py-3 font-sans
+           text-parch placeholder:text-manila-faint outline-none transition
+           focus:border-brass/70 focus:ring-2 focus:ring-brass/20;
+  }
+
+  .brass-text {
+    background: linear-gradient(180deg, #f1ddb0, #b08d4f 72%, #856a36);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .label-tab {
+    @apply font-mono text-[0.58rem] uppercase tracking-[0.22em] px-2 py-0.5 rounded-sm;
+  }
+}
+
+/* Stamped manila card back (unrevealed dossier tile). */
+.tile-paper {
+  background-color: #d9cba9;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(120,100,60,0.05) 0 2px, transparent 2px 5px),
+    radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,0.35), transparent 55%);
+}
+
+.preserve-3d { transform-style: preserve-3d; }
+.backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

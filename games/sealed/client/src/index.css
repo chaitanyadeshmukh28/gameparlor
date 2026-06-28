@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Sealed — rococo romance: blush, rose-gold, deep plum, cream parchment. */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: theme('fontFamily.body');
+  color: #f3e7ef;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #3c2143 0%, #241229 42%, #170c19 100%),
+    #170c19;
+  overflow-x: hidden;
+}
+
+/* A faint damask of pressed petals behind everything. */
+.salon-bg::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(226,154,178,0.10), transparent 9%),
+    radial-gradient(circle at 78% 22%, rgba(227,189,134,0.08), transparent 8%),
+    radial-gradient(circle at 62% 70%, rgba(226,154,178,0.07), transparent 10%),
+    radial-gradient(circle at 32% 82%, rgba(227,189,134,0.06), transparent 9%);
+  background-size: 320px 320px;
+  opacity: 0.8;
+  mask-image: radial-gradient(120% 100% at 50% 0%, #000 50%, transparent 100%);
+}
+
+@layer components {
+  .eyebrow {
+    @apply text-[0.62rem] uppercase tracking-[0.34em] text-rose-faint font-body;
+  }
+  .gilt-text {
+    background: linear-gradient(95deg, #f0d6a3, #e3bd86 40%, #c79a5f 75%, #efd9ab);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .rose-text {
+    background: linear-gradient(95deg, #f7d6df, #e29ab2 55%, #c66e8e);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .panel {
+    @apply rounded-2xl border border-rose/15 bg-plum-raised/70 backdrop-blur-sm;
+    box-shadow: 0 22px 50px -28px rgba(0,0,0,0.8), 0 1px 0 rgba(255,255,255,0.05) inset;
+  }
+  .btn-gilt {
+    @apply rounded-full px-5 py-2.5 font-body font-medium text-plum-deep transition;
+    background: linear-gradient(180deg, #f0d6a3, #e3bd86 55%, #c79a5f);
+    box-shadow: 0 8px 20px -8px rgba(227,189,134,0.6);
+  }
+  .btn-gilt:hover { filter: brightness(1.06); }
+  .btn-gilt:disabled { opacity: 0.4; box-shadow: none; }
+  .btn-ghost {
+    @apply rounded-full px-4 py-2 text-rose-faint border border-rose/20 transition;
+  }
+  .btn-ghost:hover { @apply text-blush border-rose/45; }
+  .field {
+    @apply w-full rounded-xl bg-plum-deep/70 border border-rose/20 px-4 py-2.5 text-cream
+           placeholder:text-rose-faint/60 outline-none transition;
+  }
+  .field:focus { @apply border-gilt/70; box-shadow: 0 0 0 3px rgba(227,189,134,0.18); }
+}
+
+/* The parchment letter face — warm cream stock with a deckled feel. */
+.letter-face {
+  background: linear-gradient(150deg, #fbf5e9 0%, #f6eede 48%, #ecdfc7 100%);
+  color: theme('colors.ink.DEFAULT');
+}
+.letter-face::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(120,80,60,0.18), inset 0 0 22px rgba(140,90,70,0.10);
+}
+/* The guilloché back of an unread letter. */
+.letter-back {
+  background:
+    repeating-linear-gradient(45deg, rgba(247,214,223,0.10) 0 2px, transparent 2px 9px),
+    repeating-linear-gradient(-45deg, rgba(227,189,134,0.10) 0 2px, transparent 2px 9px),
+    linear-gradient(160deg, #3c2143, #241229);
+}
+
+/* 3D flip helpers for the letter cards. */
+.preserve-3d { transform-style: preserve-3d; }
+.backface-hidden { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+:focus-visible { outline: 2px solid #e3bd86; outline-offset: 2px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

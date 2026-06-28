@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Nightfall — moonlit indigo. A nocturnal village beneath a huge silver moon. */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.sans');
+  color: theme('colors.moon.DEFAULT');
+  background-color: #070b18;
+  /* A pool of moonlight high in a deep indigo sky, fading to abyss at the horizon. */
+  background-image:
+    radial-gradient(90% 70% at 50% -15%, rgba(142,162,255,0.16), transparent 55%),
+    radial-gradient(70% 50% at 50% 8%, rgba(185,198,255,0.10), transparent 60%),
+    radial-gradient(140% 120% at 50% 130%, #04060f, transparent 60%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* A faint scatter of stars across the sky. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.7;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(238,241,251,0.9), transparent),
+    radial-gradient(1px 1px at 28% 9%, rgba(238,241,251,0.6), transparent),
+    radial-gradient(1.3px 1.3px at 47% 22%, rgba(238,241,251,0.8), transparent),
+    radial-gradient(1px 1px at 63% 12%, rgba(238,241,251,0.55), transparent),
+    radial-gradient(1px 1px at 78% 25%, rgba(238,241,251,0.7), transparent),
+    radial-gradient(1.2px 1.2px at 88% 14%, rgba(238,241,251,0.7), transparent),
+    radial-gradient(1px 1px at 7% 40%, rgba(238,241,251,0.45), transparent),
+    radial-gradient(1px 1px at 92% 44%, rgba(238,241,251,0.5), transparent),
+    radial-gradient(1px 1px at 38% 6%, rgba(238,241,251,0.5), transparent);
+}
+
+::selection { background: rgba(142,162,255,0.4); color: #fff; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(142,162,255,0.3); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-[0.62rem] uppercase tracking-[0.34em] text-moon-faint;
+  }
+
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+           font-sans text-sm font-semibold tracking-wide transition-all duration-150
+           disabled:cursor-not-allowed disabled:opacity-40 select-none
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-frost/70 focus-visible:ring-offset-2 focus-visible:ring-offset-night-abyss;
+  }
+  /* The moonlit primary — pale silver with a cold glow. */
+  .btn-moon {
+    @apply btn text-night-abyss;
+    background: linear-gradient(180deg, #ffffff, #cdd6f4 55%, #9fb0e8);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 12px 30px -12px rgba(159,176,232,0.9);
+  }
+  .btn-moon:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); }
+  .btn-moon:active:not(:disabled) { transform: translateY(0); filter: brightness(0.97); }
+
+  .btn-ghost {
+    @apply btn border border-moon/15 bg-white/[0.03] text-moon hover:border-frost/50 hover:bg-white/[0.06];
+  }
+  .btn-blood {
+    @apply btn border border-blood/45 text-blood-bright hover:bg-blood/15;
+    background: rgba(196,73,94,0.10);
+  }
+  .btn-lantern {
+    @apply btn text-night-abyss font-bold;
+    background: linear-gradient(180deg, #ffd98a, #f0c070 60%, #d39a3e);
+    box-shadow: 0 10px 26px -12px rgba(240,192,112,0.8);
+  }
+
+  .panel {
+    @apply rounded-2xl border border-moon/10 bg-night-raised/60 backdrop-blur-md;
+    box-shadow: 0 30px 70px -34px rgba(0,0,0,0.85), inset 0 1px 0 rgba(238,241,251,0.05);
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-moon/15 bg-night-abyss/70 px-4 py-3 font-sans
+           text-moon placeholder:text-moon-faint outline-none transition
+           focus:border-frost/60 focus:ring-2 focus:ring-frost/25;
+  }
+
+  .moon-text {
+    background: linear-gradient(180deg, #ffffff, #cdd6f4 65%, #8ea2ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+}
+
+/* Card geometry for 3D flips. */
+.preserve-3d { transform-style: preserve-3d; }
+.backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+
+/* The guilloché back of every role card — a silver web on indigo. */
+.card-back {
+  background-color: #141a3c;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(142,162,255,0.18) 0 1px, transparent 1px),
+    repeating-linear-gradient(45deg, rgba(142,162,255,0.07) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(-45deg, rgba(142,162,255,0.07) 0 6px, transparent 6px 12px);
+  background-size: 15px 15px, auto, auto;
+}
+
+@keyframes twinkle { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.twinkle { animation: twinkle 4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}

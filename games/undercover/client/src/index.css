@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.cond');
+  font-weight: 300;
+  color: theme('colors.bone.DEFAULT');
+  background-color: #08080A;
+  /* A single hard pool of lamp-light over an otherwise black interrogation room. */
+  background-image:
+    radial-gradient(90% 60% at 50% -8%, rgba(255,176,32,0.10), transparent 60%),
+    radial-gradient(70% 50% at 50% 38%, rgba(255,176,32,0.05), transparent 70%),
+    radial-gradient(120% 120% at 50% 120%, #000 0%, transparent 55%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* Venetian blinds: hard diagonal light bars raked across the whole room. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  background: repeating-linear-gradient(
+    8deg,
+    transparent 0 26px,
+    rgba(0,0,0,0.55) 26px 40px
+  );
+  mask-image: radial-gradient(80% 80% at 50% 25%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(80% 80% at 50% 25%, #000 30%, transparent 80%);
+}
+
+/* Fine film grain over everything. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection { background: rgba(255,176,32,0.35); color: #08080A; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(255,176,32,0.28); border-radius: 99px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+*:focus-visible {
+  outline: 2px solid theme('colors.amber.DEFAULT');
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@layer components {
+  /* Stencil/case-file caption — monospace, wide-tracked, redaction feel. */
+  .eyebrow {
+    @apply font-mono text-[0.62rem] uppercase tracking-[0.34em] text-bone-faint;
+  }
+  .stamp {
+    @apply font-poster uppercase tracking-[0.06em] leading-none;
+  }
+
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-[3px] px-4 py-3
+           font-cond font-semibold uppercase tracking-[0.16em] text-sm transition-all duration-150
+           disabled:cursor-not-allowed disabled:opacity-35 select-none;
+  }
+  /* The lit button — the amber lamp made interactive. */
+  .btn-amber {
+    @apply btn text-noir-black;
+    background: linear-gradient(180deg, #FFCB5C, #FFB020 55%, #C77F0A);
+    box-shadow: 0 0 0 1px rgba(255,176,32,0.5), 0 10px 30px -10px rgba(255,176,32,0.7), inset 0 1px 0 rgba(255,255,255,0.5);
+  }
+  .btn-amber:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+  .btn-amber:active:not(:disabled) { transform: translateY(0); filter: brightness(0.95); }
+
+  .btn-ghost {
+    @apply btn border border-bone/15 bg-white/[0.03] text-bone hover:border-amber/55 hover:bg-white/[0.06];
+  }
+  .btn-line {
+    @apply btn border border-bone/25 bg-transparent text-bone-dim hover:text-bone hover:border-bone/60;
+  }
+
+  /* A case-file panel: dark manila in noir greyscale. */
+  .panel {
+    @apply rounded-[4px] border border-bone/10 bg-noir-coal/80 backdrop-blur-md;
+    box-shadow: theme('boxShadow.file');
+  }
+
+  .field {
+    @apply w-full rounded-[3px] border border-bone/20 bg-noir-black/70 px-4 py-3 font-cond
+           text-bone placeholder:text-bone-faint outline-none transition
+           focus:border-amber/70 focus:ring-2 focus:ring-amber/20;
+  }
+
+  .amber-text {
+    color: #FFB020;
+    text-shadow: 0 0 22px rgba(255,176,32,0.5);
+  }
+}
+
+/* Redaction bar — a censor's black marker over classified text. */
+.redact {
+  background: #050505;
+  color: transparent;
+  position: relative;
+  box-shadow: 0 0 0 1px #000;
+}
+.redact::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 5px);
+  mix-blend-mode: overlay;
+}
+
+/* Rubber-stamp ink look. */
+.rubber {
+  border: 3px solid currentColor;
+  border-radius: 6px;
+  padding: 0.1em 0.4em;
+  letter-spacing: 0.08em;
+  transform: rotate(-7deg);
+  opacity: 0.92;
+}
+
+.preserve-3d { transform-style: preserve-3d; }
+.backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
