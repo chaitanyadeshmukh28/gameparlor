@@ -192,6 +192,11 @@ function board(g, hands, { deck = [], turn = 0, setAside = 4 } = {}) {
   eq(g.phase, 'roundEnd', 'round ends when one courtier remains');
   ok(g.players[0].tokens === 1, 'the survivor earns a Favor');
   ok(g.roundResult.winners.includes('0'), 'round result names the winner');
+  eq(g.roundResult.reason, 'last', 'last-standing win is flagged');
+  ok(/Ann/.test(g.roundResult.reasonText) && /last/i.test(g.roundResult.reasonText),
+    'reasonText is a plain sentence naming the last suitor standing');
+  ok(g.roundResult.fallen.some((f) => f.id === '1' && f.card === 5),
+    'fallen reveals the knocked-out rival was caught holding the Prince');
 }
 
 // ---- round win: highest letter when the satchel empties --------------------
@@ -202,6 +207,25 @@ function board(g, hands, { deck = [], turn = 0, setAside = 4 } = {}) {
   g.handleMessage('0', { t: 'play', card: 2, target: '1' }); // Ann keeps 4; deck empty → compare
   eq(g.phase, 'roundEnd', 'an empty satchel ends the round');
   ok(g.roundResult.winners.includes('1'), 'highest held letter (King 6 > 4) wins');
+  eq(g.roundResult.reason, 'compare', 'satchel-empty win is a comparison');
+  eq(g.roundResult.compare.winnerCard, 6, 'compare records the winning letter');
+  eq(g.roundResult.compare.rivalCard, 4, 'compare records the beaten letter');
+  ok(g.roundResult.compare.tiebreak === false, 'a clean rank win is not a tiebreak');
+  ok(/King/.test(g.roundResult.reasonText) && /beats/.test(g.roundResult.reasonText),
+    'reasonText spells out which letter beat which');
+}
+
+// ---- round win: tie on rank, broken by letters set aside --------------------
+{
+  const g = table();
+  board(g, [[2, 6], [6]], { turn: 0, deck: [] });
+  g.deck = [];
+  g.handleMessage('0', { t: 'play', card: 2, target: '1' }); // Ann discards the Priest, keeps King(6) vs Bo's King(6)
+  eq(g.phase, 'roundEnd', 'a tied comparison still ends the round');
+  ok(g.roundResult.winners.length === 1 && g.roundResult.winners.includes('0'),
+    'equal letters: more discarded breaks the tie');
+  ok(g.roundResult.compare.tiebreak === true, 'compare flags a discard-sum tiebreak');
+  ok(/courted more/.test(g.roundResult.reasonText), 'reasonText explains the tiebreak in plain words');
 }
 
 // ---- game win: reaching the Favor goal -------------------------------------

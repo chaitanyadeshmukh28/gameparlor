@@ -191,19 +191,28 @@ function Favors({ n, goal }) {
   );
 }
 
-// A row of wax-seal hearts — one per Favor won. New hearts spring in as earned.
-function Hearts({ n, size = 'sm', highlight = false }) {
+// A row of wax-seal hearts — one per Favor won. The `newCount` most-recently
+// earned hearts land last, in wax red with a glow, so a just-awarded Favor is
+// unmistakable as it animates onto the leaderboard.
+function Hearts({ n, size = 'sm', newCount = 0 }) {
   const px = size === 'lg' ? 'w-4 h-4' : 'w-3 h-3';
   if (n <= 0) return <SealMark className={`${px} text-rose/25`} />;
+  const firstFresh = n - Math.min(newCount, n);
   return (
     <span className="inline-flex items-center gap-0.5">
-      {Array.from({ length: n }).map((_, i) => (
-        <motion.span key={i} className="inline-grid"
-          initial={{ scale: 0, rotate: -35 }} animate={{ scale: 1, rotate: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 15, delay: i * 0.05 }}>
-          <SealMark className={`${px} ${highlight ? 'text-wax' : 'text-gilt'}`} />
-        </motion.span>
-      ))}
+      {Array.from({ length: n }).map((_, i) => {
+        const fresh = i >= firstFresh;
+        return (
+          <motion.span key={i} className="inline-grid"
+            initial={fresh ? { scale: 0, rotate: -35, y: -14 } : { scale: 0, rotate: -35 }}
+            animate={{ scale: fresh ? [0, 1.45, 1] : 1, rotate: 0, y: 0 }}
+            transition={fresh
+              ? { duration: 0.6, times: [0, 0.6, 1], delay: 0.45 + (i - firstFresh) * 0.14 }
+              : { type: 'spring', stiffness: 340, damping: 15, delay: i * 0.045 }}>
+            <SealMark className={`${px} ${fresh ? 'text-wax drop-shadow-[0_0_6px_rgba(176,42,62,0.85)]' : 'text-gilt'}`} />
+          </motion.span>
+        );
+      })}
     </span>
   );
 }
@@ -238,20 +247,29 @@ function DiscardPip({ rank }) {
 }
 
 // The prominent leaderboard shown on the round-over / game-over screens.
-function OverlayLeaderboard({ state, winners = [] }) {
+// `awardNew` animates the freshly-won Favor heart onto each winner's row.
+function OverlayLeaderboard({ state, winners = [], awardNew = false, goalId = null }) {
   const players = [...state.players].sort((a, b) => (b.tokens || 0) - (a.tokens || 0));
   return (
     <div className="space-y-1.5 mb-5 text-left">
       {players.map((p) => {
         const won = winners.includes(p.id);
+        const reachedGoal = p.id === goalId;
         return (
-          <div key={p.id}
+          <motion.div key={p.id}
+            initial={won ? { borderColor: 'rgba(227,189,134,0.1)' } : false}
+            animate={won ? { borderColor: 'rgba(227,189,134,0.55)' } : {}}
+            transition={{ delay: 0.4, duration: 0.5 }}
             className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 ${won ? 'border-gilt/55 bg-gilt/[0.09]' : 'border-rose/12 bg-plum-deep/30'}`}>
             <span className="grid place-items-center w-6 h-6 rounded-full bg-rose/15 text-blush font-display text-xs font-bold">{p.name[0]?.toUpperCase()}</span>
             <span className="text-sm text-cream flex-1 truncate">{p.name}{p.id === state.you ? ' (you)' : ''}</span>
-            {won && <span className="eyebrow !text-[0.5rem] !tracking-[0.18em] text-gilt">+1</span>}
-            <Hearts n={p.tokens || 0} size="lg" highlight={won} />
-          </div>
+            {reachedGoal && <span className="eyebrow !text-[0.5rem] !tracking-[0.18em] text-gilt">{state.favorGoal} Favors</span>}
+            {won && !reachedGoal && (
+              <motion.span initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.45 }}
+                className="eyebrow !text-[0.5rem] !tracking-[0.18em] text-gilt">+1</motion.span>
+            )}
+            <Hearts n={p.tokens || 0} size="lg" newCount={awardNew && won ? 1 : 0} />
+          </motion.div>
         );
       })}
     </div>
@@ -672,32 +690,42 @@ function SwapReveal({ card, other, reduced }) {
 }
 
 function RoundEndCard({ state, send }) {
-  const winners = (state.roundResult?.winners || []).map((id) => state.players.find((p) => p.id === id)).filter(Boolean);
-  const iWon = state.roundResult?.winners?.includes(state.you);
-  const reason = state.roundResult?.reason;
+  const rr = state.roundResult || {};
+  const winnerIds = rr.winners || [];
+  const winners = winnerIds.map((id) => state.players.find((p) => p.id === id)).filter(Boolean);
+  const iWon = winnerIds.includes(state.you);
+  const reason = rr.reason;
+
+  // The face-up showdown: survivors first (winners leading), then the fallen,
+  // each revealing the letter they were caught holding.
+  const nameOf = (id) => state.players.find((p) => p.id === id)?.name ?? '';
+  const survivors = (rr.hands || [])
+    .map((h) => ({ id: h.id, card: h.card, name: nameOf(h.id), won: winnerIds.includes(h.id), out: false }))
+    .sort((a, b) => (b.won ? 1 : 0) - (a.won ? 1 : 0));
+  const fallen = (rr.fallen || []).map((h) => ({ id: h.id, card: h.card, name: nameOf(h.id), won: false, out: true }));
+  const reveal = [...survivors, ...fallen];
+
   return (
     <Overlay>
-      <motion.div initial={{ scale: 0.9, y: 12 }} animate={{ scale: 1, y: 0 }} className="panel p-6 sm:p-7 text-center max-w-sm w-full max-h-[90vh] overflow-y-auto no-scrollbar">
+      <motion.div initial={{ scale: 0.9, y: 12 }} animate={{ scale: 1, y: 0 }} className="panel p-6 sm:p-7 text-center max-w-md w-full max-h-[90vh] overflow-y-auto no-scrollbar">
         <FlourishSeal />
         <p className="eyebrow mt-3 mb-1">{reason === 'last' ? 'The last letter standing' : 'The satchel runs dry'}</p>
         <h2 className="font-display text-3xl font-bold rose-text mb-2">
-          {winners.length === 1 ? `${winners[0].name} wins the round` : `${winners.map((w) => w.name).join(' & ')} share it`}
+          {winners.length === 1 ? `${winners[0].name} wins the round` : winners.length ? `${winners.map((w) => w.name).join(' & ')} share it` : 'No victor this round'}
         </h2>
-        <p className="text-cream/80 text-sm mb-4">
-          {iWon ? 'A Favor is yours — the courtship continues.' : `A Favor goes to ${winners.map((w) => w.name).join(' & ')}.`}
+        {/* The server's plain, authoritative sentence — the WHY. */}
+        {rr.reasonText && (
+          <p className="text-cream/85 text-sm mb-1.5 max-w-sm mx-auto leading-snug">{rr.reasonText}</p>
+        )}
+        <p className="text-gilt text-xs mb-4 flex items-center justify-center gap-1.5">
+          <SealMark className="w-3 h-3" />
+          {iWon ? 'A Favor is yours — the courtship continues.'
+            : winners.length ? `A Favor goes to ${winners.map((w) => w.name).join(' & ')}.` : 'No Favor is awarded.'}
         </p>
-        <div className="flex flex-wrap justify-center gap-2 mb-4">
-          {(state.roundResult?.hands || []).map((h) => {
-            const p = state.players.find((x) => x.id === h.id);
-            return (
-              <div key={h.id} className="flex flex-col items-center gap-1">
-                <Letter rank={h.card} faceUp={h.card != null} size="sm" />
-                <span className="text-[0.6rem] text-rose-faint truncate max-w-[3.5rem]">{p?.name}</span>
-              </div>
-            );
-          })}
-        </div>
-        <OverlayLeaderboard state={state} winners={state.roundResult?.winners || []} />
+
+        <Showdown reveal={reveal} />
+
+        <OverlayLeaderboard state={state} winners={winnerIds} awardNew />
         {state.isHost ? (
           <button className="btn-gilt w-full" onClick={() => send({ t: 'next' })}>Deal the next round</button>
         ) : (
@@ -705,6 +733,30 @@ function RoundEndCard({ state, send }) {
         )}
       </motion.div>
     </Overlay>
+  );
+}
+
+// The end-of-round reveal: every relevant hand turned face-up. Winners wear a
+// gilt ring; the fallen are greyed with the letter that undid them (Letter's own
+// ✕). Cards flip in one after another for a readable reveal.
+function Showdown({ reveal }) {
+  if (!reveal.length) return null;
+  return (
+    <div className="flex flex-wrap justify-center gap-2.5 mb-5">
+      {reveal.map((h, i) => (
+        <motion.div key={h.id} initial={{ opacity: 0, y: 10, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: i * 0.12, type: 'spring', stiffness: 240, damping: 22 }}
+          className="flex flex-col items-center gap-1">
+          <div className={`rounded-2xl ${h.won ? 'ring-2 ring-gilt/80 shadow-[0_0_18px_-2px_rgba(227,189,134,0.6)]' : ''}`}>
+            <Letter rank={h.card} faceUp={h.card != null} dead={h.out} size="sm" delay={i * 0.1} />
+          </div>
+          <span className={`text-[0.62rem] truncate max-w-[4.4rem] ${h.won ? 'text-gilt' : 'text-rose-faint'}`}>{h.name}</span>
+          <span className={`eyebrow !text-[0.42rem] !tracking-[0.16em] ${h.won ? 'text-gilt' : h.out ? 'text-wax/80' : 'text-cream-dim/60'}`}>
+            {h.won ? '♥ won' : h.out ? 'out' : 'stood'}
+          </span>
+        </motion.div>
+      ))}
+    </div>
   );
 }
 
@@ -719,11 +771,14 @@ function GameOverCard({ state, send }) {
           <SealMark className="w-9 h-9 text-blush" />
         </motion.div>
         <p className="eyebrow mb-2">{iWon ? 'Every Favor courted' : 'The soirée ends'}</p>
-        <h2 className="font-display text-4xl font-bold gilt-text mb-3">{winner ? winner.name : 'No one'} wins</h2>
-        <p className="text-cream/80 text-sm mb-5">
-          {iWon ? 'The whole salon swoons. The season is yours.' : `${winner?.name} collected the most Favors of the night.`}
+        <h2 className="font-display text-4xl font-bold gilt-text mb-2">{winner ? winner.name : 'No one'} wins the soirée</h2>
+        <p className="text-cream/85 text-sm mb-1 max-w-sm mx-auto leading-snug">
+          {winner
+            ? `${iWon ? 'You were' : `${winner.name} was`} first to reach ${state.favorGoal} Favors${winner ? ` — ${winner.tokens} in all.` : '.'}`
+            : 'The salon empties with no clear victor.'}
         </p>
-        <OverlayLeaderboard state={state} winners={state.gameWinnerId ? [state.gameWinnerId] : []} />
+        <p className="text-gilt text-xs mb-5">{iWon ? 'The whole salon swoons. The season is yours.' : 'A toast to the season’s sweetheart.'}</p>
+        <OverlayLeaderboard state={state} winners={state.gameWinnerId ? [state.gameWinnerId] : []} goalId={state.gameWinnerId} />
         {state.isHost ? (
           <button className="btn-gilt w-full" onClick={() => send({ t: 'restart' })}>Back to the parlor</button>
         ) : (

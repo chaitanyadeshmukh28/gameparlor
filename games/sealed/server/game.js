@@ -140,10 +140,23 @@ export class Game extends BaseGame {
       reason = 'compare';
     }
     for (const w of winners) w.tokens = (w.tokens || 0) + 1;
+
+    // A plain, authoritative sentence explaining WHY the round ended this way,
+    // plus the structured compare data the client needs to reveal the showdown.
+    const { reasonText, compare } = this.describeRoundEnd(reason, winners, contenders);
+
     this.roundResult = {
       winners: winners.map((w) => w.id),
       reason,
+      reasonText,
+      compare,                                 // present only when the satchel emptied
+      // Surviving hands, revealed face-up at the showdown.
       hands: contenders.map((p) => ({ id: p.id, card: p.hand[0] ?? null })),
+      // Who was knocked out, and the letter they were caught holding (their last
+      // discard) — so players can see who fell to what.
+      fallen: this.players
+        .filter((p) => p.eliminated)
+        .map((p) => ({ id: p.id, card: p.discards.length ? p.discards[p.discards.length - 1] : null })),
     };
     if (winners.length === 1) this.note(`${winners[0].name} wins the round and a Favor.`);
     else this.note(`${winners.map((w) => w.name).join(' & ')} share the round.`);
@@ -164,6 +177,50 @@ export class Game extends BaseGame {
       this.phase = 'roundEnd';
     }
     return {};
+  }
+
+  // Author a single, plain sentence for the round result (shown verbatim to all
+  // players) and, for an emptied-satchel comparison, the cards that decided it.
+  describeRoundEnd(reason, winners, contenders) {
+    const cardName = (r) => (CARDS[r] ? CARDS[r].name : 'letter');
+    const list = (arr) => arr.map((p) => p.name).join(' and ');
+
+    if (reason === 'last') {
+      if (!winners.length) return { reasonText: 'Every courtier was knocked out — the round closes with no victor.', compare: null };
+      return { reasonText: `${winners[0].name} was the last suitor standing.`, compare: null };
+    }
+
+    // reason === 'compare': the courier's satchel ran dry; highest letter wins.
+    const win = winners[0];
+    const winCard = win ? (win.hand[0] ?? 0) : 0;
+    // The strongest contender who did not win — the letter the winner beat.
+    const rival = [...contenders]
+      .filter((p) => !winners.includes(p))
+      .sort((a, b) => (b.hand[0] ?? 0) - (a.hand[0] ?? 0))[0] || null;
+    const rivalCard = rival ? (rival.hand[0] ?? 0) : 0;
+    const tiebreak = rival != null && winCard === rivalCard;
+
+    let reasonText;
+    if (winners.length > 1) {
+      reasonText = `The courier’s satchel ran dry — ${list(winners)} both held the ${cardName(winCard)} (${winCard}) and share the round.`;
+    } else if (!rival) {
+      reasonText = `The courier’s satchel ran dry — ${win?.name ?? 'no one'} held the only letter left.`;
+    } else if (tiebreak) {
+      reasonText = `The courier’s satchel ran dry — ${win.name} and ${rival.name} both held the ${cardName(winCard)} (${winCard}), but ${win.name} had courted more and takes it.`;
+    } else {
+      reasonText = `The courier’s satchel ran dry — ${win.name} held the higher letter (${cardName(winCard)} ${winCard} beats ${cardName(rivalCard)} ${rivalCard}).`;
+    }
+
+    return {
+      reasonText,
+      compare: {
+        winnerId: win?.id ?? null,
+        winnerCard: winCard || null,
+        rivalId: rival?.id ?? null,
+        rivalCard: rivalCard || null,
+        tiebreak,
+      },
+    };
   }
 
   nextRound(id) {
