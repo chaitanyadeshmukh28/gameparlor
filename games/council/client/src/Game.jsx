@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ROLES, POLICY, POWERS, PHASE_LABEL, Gavel, Sash, WaxSeal, Crest } from './lib.jsx';
+import { ROLES, POLICY, POWERS, PHASE_LABEL, roleOf, powerOf, Gavel, Sash, WaxSeal, Crest } from './lib.jsx';
 import Rules from './Rules.jsx';
 
 const reduce = typeof window !== 'undefined' && window.matchMedia
@@ -29,6 +29,20 @@ export default function Game({ net }) {
 
   const me = state.players.find((p) => p.id === you);
 
+  // #6/#8 — detect a freshly enacted policy (the track grew) and play the
+  // fly-in + wax-stamp slam; chaos enactments get a distinct "disorder" beat.
+  const enactedTotal = state.tracks.liberal + state.tracks.fascist;
+  const [enactFx, setEnactFx] = useState(null);
+  const prevTotal = useRef(enactedTotal);
+  useEffect(() => {
+    if (enactedTotal > prevTotal.current && state.lastEnacted) {
+      const { policy, fromChaos } = state.lastEnacted;
+      const power = policy === 'fascist' ? state.powerTrack?.[state.tracks.fascist] : null;
+      setEnactFx({ policy, fromChaos, power, key: enactedTotal });
+    }
+    prevTotal.current = enactedTotal;
+  }, [enactedTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="relative mx-auto flex h-[100dvh] max-w-md flex-col px-3 pb-3 pt-2 overflow-hidden">
       <Header state={state} onRules={() => setRulesOpen(true)} />
@@ -41,6 +55,7 @@ export default function Game({ net }) {
 
       <Rules open={rulesOpen} onClose={() => setRulesOpen(false)} />
       <VoteReveal state={state} />
+      <EnactFx fx={enactFx} onDone={() => setEnactFx(null)} />
       <GameOver state={state} send={send} />
 
       <AnimatePresence>
@@ -75,12 +90,26 @@ function Header({ state, onRules }) {
 }
 
 function ElectionTracker({ n }) {
+  // A rising tension meter: lit embers glow brighter as failures mount, and the
+  // third (chaos-triggering) ember swells and pulses fastest.
   return (
     <div className="flex items-center gap-1" title={`Failed votes: ${n}/3`} aria-label={`Failed votes ${n} of 3`}>
-      {[0, 1, 2].map((i) => (
-        <span key={i} className={`h-2.5 w-2.5 rounded-full border transition-colors ${
-          i < n ? 'border-wax bg-wax' : 'border-brass/30 bg-transparent'}`} />
-      ))}
+      {[0, 1, 2].map((i) => {
+        const lit = i < n;
+        const brink = i === 2;
+        return (
+          <motion.span key={i}
+            className={`rounded-full border ${lit ? 'border-wax bg-wax' : 'border-brass/30 bg-transparent'}`}
+            style={{ height: 10, width: 10 }}
+            animate={lit && !reduce
+              ? { scale: brink ? [1.15, 1.45, 1.15] : [1, 1.18, 1],
+                  boxShadow: brink
+                    ? ['0 0 4px #b0463c', '0 0 12px #cd5d50', '0 0 4px #b0463c']
+                    : ['0 0 2px #5f201c', '0 0 7px #b0463c', '0 0 2px #5f201c'] }
+              : { scale: lit && brink ? 1.3 : 1 }}
+            transition={{ duration: brink ? 0.9 : 1.4, repeat: Infinity }} />
+        );
+      })}
     </div>
   );
 }
@@ -89,7 +118,7 @@ function ElectionTracker({ n }) {
 function RoleStrip({ state, me }) {
   const [open, setOpen] = useState(false);
   if (!me?.role) return <div className="h-1" />;
-  const role = ROLES[me.role];
+  const role = roleOf(me.role);
   const allies = state.players.filter((p) => p.role && p.id !== me.id);
   const bad = role.team === 'bad';
   return (
@@ -114,7 +143,7 @@ function RoleStrip({ state, me }) {
               <span className="text-parch-faint">You know:</span>
               {allies.map((a) => (
                 <span key={a.id} className="rounded bg-wax-deep/40 px-1.5 py-0.5 text-parch">
-                  {a.name} <span className="text-wax-bright">· {ROLES[a.role].name}</span>
+                  {a.name} <span className="text-wax-bright">· {roleOf(a.role).name}</span>
                 </span>
               ))}
             </div>
@@ -164,7 +193,7 @@ function Track({ type, count, total, powerTrack }) {
                 {i < count && <PolicyCard type={type} idx={i} />}
               </div>
               {power && (
-                <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[0.5rem]" title={POWERS[power].name}>
+                <span className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[0.5rem]" title={powerOf(power).name}>
                   <PowerGlyph type={power} lit={i < count} />
                 </span>
               )}
@@ -180,8 +209,38 @@ function PolicyTracks({ state }) {
   const t = state.tracks;
   return (
     <div className="mt-2 space-y-2">
-      <Track type="liberal" count={t.liberal} total={t.liberalWin} powerTrack={{}} />
+      <div className="flex items-center gap-2">
+        <div className="flex-1"><Track type="liberal" count={t.liberal} total={t.liberalWin} powerTrack={{}} /></div>
+        <DeckStack count={state.deckCount} discard={state.discardCount} />
+      </div>
       <div className="pb-3"><Track type="fascist" count={t.fascist} total={t.fascistWin} powerTrack={state.powerTrack} /></div>
+    </div>
+  );
+}
+
+// #9 — the draw deck as a physical stack that thins on draw, re-thickens on
+// reshuffle. Each rendered leaf ≈ a few cards; AnimatePresence animates the
+// layers peeling off / stacking back.
+function DeckStack({ count = 0, discard = 0 }) {
+  const layers = Math.min(7, Math.max(count > 0 ? 1 : 0, Math.ceil(count / 3)));
+  return (
+    <div className="flex flex-col items-center gap-0.5" title={`Draw ${count} · Discard ${discard}`} aria-label={`Draw pile ${count} cards`}>
+      <div className="relative" style={{ height: 30, width: 26 }}>
+        <AnimatePresence>
+          {Array.from({ length: layers }).map((_, i) => (
+            <motion.div key={`${layers}-${i}`}
+              className="absolute rounded-[2px] border border-brass/40 bg-parch/90 shadow-seal"
+              style={{ height: 20, width: 16, left: i * 1.3, bottom: i * 1.5 }}
+              initial={reduce ? false : { opacity: 0, y: -8, rotate: -6 }}
+              animate={{ opacity: 1, y: 0, rotate: 0 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -10, rotate: 8 }}
+              transition={{ duration: 0.25, delay: i * 0.03 }}>
+              <span className="absolute inset-x-0 top-0 h-0.5 rounded-t-[2px] bg-brass/40" />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+      <span className="font-mono text-[0.5rem] tracking-wide text-parch-faint">deck {count}</span>
     </div>
   );
 }
@@ -194,27 +253,51 @@ function PowerGlyph({ type, lit }) {
 
 // ---- council ring ----------------------------------------------------------
 function CouncilRing({ state, you }) {
+  // Track who has *just* died so the execution strike plays once, on the moment.
+  const prevDead = useRef(new Set());
+  const deadNow = new Set(state.players.filter((p) => p.alive === false).map((p) => p.id));
+  const justDied = new Set([...deadNow].filter((id) => !prevDead.current.has(id)));
+  useEffect(() => { prevDead.current = deadNow; });
+
   return (
     <div className="mt-1 flex flex-wrap justify-center gap-1.5">
       {state.players.map((p) => {
         const dead = p.alive === false;
+        const struck = dead && justDied.has(p.id);
         const tone = p.team === 'bad' ? '#b0463c' : p.team === 'good' ? '#4f9d83' : '#7a6a3f';
         return (
           <div key={p.id} className={`relative flex w-[3.4rem] flex-col items-center ${dead ? 'opacity-40' : ''}`}>
-            <div className={`relative rounded-full ${p.isChair ? 'ring-2 ring-brass-bright' : ''} ${!p.connected ? 'grayscale' : ''}`}>
+            <div className={`relative rounded-full ${p.isChair ? 'ring-2 ring-brass-bright' : ''} ${!p.connected ? 'grayscale' : ''} ${struck && !reduce ? 'grayscale' : ''}`}>
               <WaxSeal size={36} tone={tone}>
                 <text x="0" y="4" textAnchor="middle" fontSize="13" fill="rgba(0,0,0,0.55)" stroke="none" fontFamily="Cinzel, serif">
                   {p.name[0]?.toUpperCase()}
                 </text>
               </WaxSeal>
-              {p.isChair && <span className="absolute -right-1 -top-1 rounded-full bg-chamber-deep p-0.5 text-brass-bright"><Gavel size={13} /></span>}
+              {/* #7 Special Election — the gavel pops/slides in at the seat it lands on. */}
+              {p.isChair && (
+                <motion.span key={`gavel-${state.chairId}`} className="absolute -right-1 -top-1 rounded-full bg-chamber-deep p-0.5 text-brass-bright"
+                  initial={reduce ? false : { scale: 0, rotate: -45, y: -6 }} animate={{ scale: 1, rotate: 0, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 16 }}>
+                  <Gavel size={13} />
+                </motion.span>
+              )}
               {p.isDeputy && <span className="absolute -left-1 -top-1 rounded-full bg-chamber-deep p-0.5 text-brass-bright"><Sash size={12} /></span>}
               {dead && <span className="absolute inset-0 grid place-items-center text-lg text-wax-bright">✕</span>}
+              {/* #7 Execution — a strike lands and a shockwave ring shatters out. */}
+              {struck && !reduce && (
+                <>
+                  <motion.span className="absolute inset-0 z-10 grid place-items-center text-2xl font-bold text-wax-bright"
+                    initial={{ scale: 2.6, opacity: 0, rotate: -25 }} animate={{ scale: 1, opacity: [0, 1, 1], rotate: 0 }}
+                    transition={{ duration: 0.45, type: 'spring', stiffness: 400, damping: 14 }}>✕</motion.span>
+                  <motion.span className="absolute inset-0 rounded-full" style={{ boxShadow: '0 0 0 2px #cd5d50' }}
+                    initial={{ opacity: 0.9, scale: 1 }} animate={{ opacity: 0, scale: 1.9 }} transition={{ duration: 0.6 }} />
+                </>
+              )}
             </div>
             <span className="mt-0.5 max-w-full truncate text-[0.62rem] leading-tight">
               {p.name}{p.id === you && <span className="text-brass-dim">·you</span>}
             </span>
-            {p.role && <span className={`text-[0.5rem] ${p.team === 'bad' ? 'text-wax-bright' : 'text-order-bright'}`}>{ROLES[p.role].name}</span>}
+            {p.role && <span className={`text-[0.5rem] ${p.team === 'bad' ? 'text-wax-bright' : 'text-order-bright'}`}>{roleOf(p.role).name}</span>}
           </div>
         );
       })}
@@ -296,12 +379,12 @@ function ActionTray({ state, you, send, me }) {
     if (!alive) return <Waiting>The Council votes on {chair?.name} &amp; {deputy?.name}. You watch from the gallery.</Waiting>;
     if (state.yourVote) return <Waiting>Ballot cast. {voted.length}/{living.length} members have voted…</Waiting>;
     return (
-      <Panel title="Cast your ballot" hint={`Will ${chair?.name} & ${deputy?.name} govern?`}>
+      <Panel title="Cast your ballot" hint={`Will ${chair?.name} & ${deputy?.name} govern?`}
+        footer={<div className="text-center text-xs text-parch-faint">{voted.length}/{living.length} ballots in</div>}>
         <div className="grid grid-cols-2 gap-3">
           <BallotButton tone="order" label="Ja" sub="In favour" onClick={() => send({ t: 'vote', vote: 'ja' })} />
           <BallotButton tone="wax" label="Nein" sub="Against" onClick={() => send({ t: 'vote', vote: 'nein' })} />
         </div>
-        <div className="mt-2 text-center text-xs text-parch-faint">{voted.length}/{living.length} ballots in</div>
       </Panel>
     );
   }
@@ -356,14 +439,24 @@ function ActionTray({ state, you, send, me }) {
 
   // EXECUTIVE POWER
   if (state.phase === 'power' && state.power) {
-    const pw = POWERS[state.power.type];
+    const pw = powerOf(state.power.type);
     const amChair = state.power.chairId === you;
     if (!amChair) return <Waiting>{chair?.name} invokes the {pw.name}…</Waiting>;
 
     if (state.power.type === 'survey') {
       return (
         <Panel title={pw.name} hint="The next three policies, top first.">
-          <div className="flex justify-center gap-3">{state.power.top3?.map((type, i) => <LegCard key={i} type={type} />)}</div>
+          {/* #7 Survey — the top three lift off the deck, fan out, then flip face-up. */}
+          <div className="flex justify-center gap-3" style={{ perspective: 700 }}>
+            {state.power.top3?.map((type, i) => (
+              <motion.div key={i} style={{ transformStyle: 'preserve-3d' }}
+                initial={reduce ? false : { rotateY: 180, y: -30, opacity: 0 }}
+                animate={{ rotateY: 0, y: 0, opacity: 1, rotate: (i - 1) * 7 }}
+                transition={{ delay: reduce ? 0 : 0.12 + i * 0.18, type: 'spring', stiffness: 200, damping: 16 }}>
+                <LegCard type={type} />
+              </motion.div>
+            ))}
+          </div>
           <button data-testid="ack" className="btn-brass mt-3 w-full" onClick={() => send({ t: 'ackPower' })}>Return to the chamber</button>
         </Panel>
       );
@@ -373,9 +466,7 @@ function ActionTray({ state, you, send, me }) {
       const bad = state.power.result === 'bad';
       return (
         <Panel title="Allegiance inspected" hint="For your eyes only.">
-          <div className={`rounded-lg p-3 text-center font-display text-lg ${bad ? 'bg-wax-deep/40 text-wax-bright' : 'bg-order-deep/40 text-order-bright'}`}>
-            {target?.name} stands with the {bad ? 'Fascists' : 'Liberals'}
-          </div>
+          <InspectReveal name={target?.name} bad={bad} />
           <button data-testid="ack" className="btn-brass mt-3 w-full" onClick={() => send({ t: 'ackPower' })}>Note it &amp; continue</button>
         </Panel>
       );
@@ -397,7 +488,7 @@ function ActionTray({ state, you, send, me }) {
 }
 
 // ---- tray primitives -------------------------------------------------------
-function Panel({ title, hint, children }) {
+function Panel({ title, hint, children, footer }) {
   return (
     <motion.div className="panel flex h-full flex-col p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
       <div className="mb-2">
@@ -405,6 +496,8 @@ function Panel({ title, hint, children }) {
         {hint && <p className="text-sm text-parch/60">{hint}</p>}
       </div>
       <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto">{children}</div>
+      {/* A reserved, always-visible footer row — never falls under the fold. */}
+      {footer && <div className="mt-2 shrink-0 border-t border-brass/10 pt-2">{footer}</div>}
     </motion.div>
   );
 }
@@ -448,15 +541,98 @@ function LegCard({ type, label, onClick, idx }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag onClick={onClick} data-testid={onClick ? 'legcard' : undefined} data-idx={idx} data-policy={type}
-      className={`relative flex w-20 flex-col items-center justify-center rounded-md bg-parch p-2 shadow-seal ${onClick ? 'transition hover:-translate-y-1' : ''}`}
-      style={{ aspectRatio: '3/4' }}>
+      className={`relative flex w-20 flex-col items-center justify-center rounded-md bg-parch px-2 pb-1.5 pt-2.5 shadow-seal ${onClick ? 'transition hover:-translate-y-1' : ''}`}>
       <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-md ${isLib ? 'bg-order' : 'bg-wax'}`} />
       <span className={`font-display text-sm font-bold uppercase tracking-wide ${isLib ? 'text-order-deep' : 'text-wax-deep'}`}>
         {POLICY[type].name}
       </span>
       <span className={`mt-1 h-4 w-4 rounded-full ${isLib ? 'bg-order' : 'bg-wax'}`} />
-      {label && <span className="absolute -bottom-6 font-mono text-[0.6rem] uppercase tracking-wider text-brass-bright">{label} ↑</span>}
+      {/* Caption lives INSIDE the card so it can never clip below the viewport fold. */}
+      {label && <span className="mt-1.5 font-mono text-[0.55rem] uppercase tracking-wider text-brass-dim">↑ {label}</span>}
     </Tag>
+  );
+}
+
+// ---- #7 inspect: a wax seal cracks open to a red/green sigil ----------------
+function InspectReveal({ name, bad }) {
+  const tone = bad ? '#b0463c' : '#4f9d83';
+  return (
+    <div className="grid place-items-center gap-3 py-2">
+      <div className="relative h-24 w-24">
+        {/* the neutral seal cracks and fades… */}
+        <motion.div className="absolute inset-0 grid place-items-center"
+          initial={reduce ? false : { opacity: 1 }} animate={{ opacity: 0 }} transition={{ delay: reduce ? 0 : 0.45, duration: 0.3 }}>
+          <WaxSeal size={92} tone="#5c4d28"><path d="M0 -9 L0 9" /></WaxSeal>
+        </motion.div>
+        {/* …revealing the allegiance sigil beneath. */}
+        <motion.div className="absolute inset-0 grid place-items-center"
+          initial={reduce ? false : { scale: 0, rotate: -28, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }}
+          transition={{ delay: reduce ? 0 : 0.5, type: 'spring', stiffness: 260, damping: 13 }}>
+          <WaxSeal size={92} tone={tone}>
+            {bad ? <path d="M-6 -6 L6 6 M6 -6 L-6 6" /> : <path d="M-7 0 L-2 6 L7 -7" />}
+          </WaxSeal>
+        </motion.div>
+      </div>
+      <div className={`text-center font-display text-lg ${bad ? 'text-wax-bright' : 'text-order-bright'}`}>
+        {name} stands with the {bad ? 'Fascists' : 'Liberals'}
+      </div>
+    </div>
+  );
+}
+
+// ---- #6/#8 enact: card flies in, slams with a wax stamp; chaos = disorder ----
+function EnactFx({ fx, onDone }) {
+  return <AnimatePresence>{fx && <EnactFxInner key={fx.key} fx={fx} onDone={onDone} />}</AnimatePresence>;
+}
+function EnactFxInner({ fx, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, reduce ? 700 : fx.fromChaos ? 2000 : 1500);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const isLib = fx.policy === 'liberal';
+  const accent = isLib ? '#4f9d83' : '#b0463c';
+  return (
+    <motion.div className="pointer-events-none fixed inset-0 z-[45] grid place-items-center"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      {/* disorder flash for chaos enactments */}
+      <motion.div className="absolute inset-0"
+        style={{ background: fx.fromChaos ? 'radial-gradient(circle, rgba(176,70,60,0.34), transparent 62%)' : 'transparent' }}
+        initial={{ opacity: 0 }} animate={{ opacity: fx.fromChaos ? [0, 1, 0] : 0 }} transition={{ duration: 0.9 }} />
+      <motion.div className="relative"
+        initial={reduce ? { opacity: 0 } : { y: 280, scale: 0.7, rotate: fx.fromChaos ? 180 : isLib ? -8 : 8, opacity: 0 }}
+        animate={reduce
+          ? { opacity: 1 }
+          : { y: [280, -12, 0], scale: [0.7, 1.16, 1], rotate: 0, opacity: 1, x: [0, -7, 7, -3, 0] }}
+        transition={{ duration: reduce ? 0.2 : 0.65, times: [0, 0.72, 1] }}>
+        <div className="relative flex h-32 w-24 flex-col items-center justify-center rounded-lg bg-parch shadow-seal">
+          <div className="absolute inset-x-0 top-0 h-2 rounded-t-lg" style={{ background: accent }} />
+          <span className="font-display text-base font-bold uppercase" style={{ color: isLib ? '#1f3f37' : '#5f201c' }}>
+            {POLICY[fx.policy].name}
+          </span>
+          <motion.div className="mt-2"
+            initial={reduce ? false : { scale: 2.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: reduce ? 0 : 0.5, type: 'spring', stiffness: 500, damping: 17 }}>
+            <WaxSeal size={40} tone={accent}><circle cx="0" cy="0" r="7" /></WaxSeal>
+          </motion.div>
+        </div>
+        {/* #6 — landing on a power slot ignites the power glyph */}
+        {fx.power && (
+          <motion.div className="absolute -right-5 -top-5 grid h-10 w-10 place-items-center rounded-full bg-chamber-deep/80"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: [0, 1.4, 1], opacity: 1, boxShadow: ['0 0 0px #e8d49a', '0 0 26px #e8d49a', '0 0 12px #e8d49a'] }}
+            transition={{ delay: reduce ? 0 : 0.75, duration: 0.6 }}>
+            <span className="text-xl"><PowerGlyph type={fx.power} lit /></span>
+          </motion.div>
+        )}
+      </motion.div>
+      <motion.div className="absolute bottom-[20%] px-6 text-center"
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reduce ? 0.1 : 0.65 }}>
+        <div className={`font-display text-lg font-bold ${isLib ? 'text-order-bright' : 'text-wax-bright'}`}>
+          {fx.fromChaos ? 'Forced through in disorder' : `${POLICY[fx.policy].name} policy sealed`}
+        </div>
+        {fx.power && <div className="eyebrow mt-1 text-brass-bright">{powerOf(fx.power).name} unlocked</div>}
+      </motion.div>
+    </motion.div>
   );
 }
 

@@ -2,7 +2,7 @@
 // and render whatever state arrives. Same shape across every Parlor game.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const wsURL = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+const wsURL = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${import.meta.env.BASE_URL}ws`;
 
 export function useGameSocket() {
   const [status, setStatus] = useState('connecting'); // connecting | open | closed

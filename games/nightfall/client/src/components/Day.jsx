@@ -19,34 +19,36 @@ export default function Day({ state, send }) {
   const me_ready = me?.ready;
 
   return (
-    <motion.div {...fade} className="w-full max-w-md mx-auto flex flex-col items-center gap-3 text-center">
+    <motion.div {...fade} className="w-full max-w-md mx-auto flex flex-col items-center gap-2 text-center">
       <div>
-        <p className="eyebrow mb-1">Dawn breaks</p>
-        <h2 className="font-display text-3xl text-moon leading-none">The village debates</h2>
-        <p className="text-sm text-moon-dim mt-1.5">Talk it out. Who acted strangely in the dark? When you're ready, call the vote.</p>
+        <p className="eyebrow mb-0.5">Dawn breaks</p>
+        <h2 className="font-display text-2xl sm:text-3xl text-moon leading-none">The village debates</h2>
+        <p className="text-xs sm:text-sm text-moon-dim mt-1">Who acted strangely in the dark? When you're ready, call the vote.</p>
       </div>
 
       {day.endsAt ? (
         <motion.div
           key="timer"
           initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          className={`font-mono text-5xl tracking-wider ${expired ? 'text-blood-bright' : 'text-lantern'}`}
+          className={`font-mono text-4xl sm:text-5xl tracking-wider leading-none ${expired ? 'text-blood-bright' : 'text-lantern'}`}
           style={{ textShadow: expired ? '0 0 24px rgba(196,73,94,0.5)' : '0 0 24px rgba(240,192,112,0.45)' }}
         >
           {mm}:{ss}
         </motion.div>
-      ) : (
-        <p className="text-sm text-moon-faint">No timer running — talk as long as you like.</p>
-      )}
-
-      {state.isHost && !day.endsAt && (
-        <div className="flex gap-2">
-          {[120, 180, 300].map((s) => (
-            <button key={s} className="btn-ghost !px-3 !py-2 text-xs" onClick={() => send({ t: 'startTimer', seconds: s })}>
-              {s / 60} min timer
-            </button>
-          ))}
+      ) : state.isHost ? (
+        // Collapse the three timer presets into one compact segmented control (QA #8).
+        <div className="flex items-center gap-2 text-xs text-moon-dim">
+          <span className="eyebrow !text-[0.5rem]">Discussion timer</span>
+          <div className="flex rounded-lg border border-moon/15 overflow-hidden divide-x divide-moon/15">
+            {[2, 3, 5].map((m) => (
+              <button key={m} className="px-3 py-1.5 hover:bg-frost/10 transition" onClick={() => send({ t: 'startTimer', seconds: m * 60 })}>
+                {m}m
+              </button>
+            ))}
+          </div>
         </div>
+      ) : (
+        <p className="text-xs text-moon-faint">No timer running — talk as long as you like.</p>
       )}
 
       <div className="w-full panel p-3">
@@ -70,7 +72,7 @@ export default function Day({ state, send }) {
         )}
       </div>
 
-      <SecretDock me={me} compact />
+      <SecretDock me={me} strip />
     </motion.div>
   );
 }

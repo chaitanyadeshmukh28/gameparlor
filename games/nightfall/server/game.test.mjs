@@ -271,5 +271,68 @@ function resolveWith(finalRoles, votes) {
   ok(/no one was eliminated — the Village wins/.test(g2.result.reason), 'no-wolf no-death reason reads as a village win');
 })();
 
+// ---- 14. Reconnect requires the seat's secret token (no name hijack) ------
+(() => {
+  const g = new Game('TEST');
+  ['a', 'b', 'c'].forEach((id, i) => g.addPlayer(id, NAMES[i]));
+  const boToken = g.byId('b').token;
+  ok(typeof boToken === 'string' && boToken.length > 0, 'each seat is issued a secret token');
+  g.start('a');
+  ok(g.phase === 'night', 'host start moves into the night');
+
+  // Attacker knows Bo's name + code but not the token -> rejected every way.
+  ok(g.addPlayer('attacker', 'Bo') === null, 'reconnect without a token is rejected');
+  ok(g.addPlayer('attacker', 'Bo', 'wrong') === null, 'reconnect with a wrong token is rejected');
+  // Right token, but Bo is still online -> cannot displace a live seat.
+  ok(g.addPlayer('attacker', 'Bo', boToken) === null, 'a still-connected seat cannot be reclaimed');
+  ok(g.byId('b') && g.byId('b').id === 'b', 'the original Bo keeps the seat');
+
+  // Bo drops, then reconnects with the right token -> granted.
+  g.removePlayer('b');
+  ok(g.byId('b').connected === false, "Bo's seat is marked disconnected, not removed");
+  ok(g.addPlayer('attacker', 'Bo', 'wrong') === null, 'still rejected with a wrong token while disconnected');
+  const seat = g.addPlayer('bo2', 'Bo', boToken);
+  ok(seat && seat.connected === true, 'the correct token reclaims a disconnected seat');
+  ok(seat.id === 'bo2' && seat.token === boToken, 'the reclaimed seat keeps its token under the new socket id');
+})();
+
+// ---- 15. Host migrates to a connected player when the host drops ----------
+(() => {
+  const g = forceGame(['werewolf', 'seer', 'villager'], ['robber', 'troublemaker', 'tanner']);
+  while (g.phase === 'night') g.nightAction(g.activeStep.playerId, { skip: true });
+  g.toggleReady('p0'); g.toggleReady('p1'); g.toggleReady('p2');
+  g.castVote('p0', 'p1'); g.castVote('p1', 'p0'); g.castVote('p2', 'p0');
+  ok(g.phase === 'result', 'reached the result screen');
+  ok(g.hostId === 'p0', 'p0 is the host');
+  g.removePlayer('p0');                                   // host leaves at the result
+  ok(g.hostId === 'p1', 'the host migrates to the first connected player');
+  ok(g.resetToLobby('p1').error === undefined, 'the new host can Play again');
+  ok(g.phase === 'lobby', 'the room returns to the lobby under the new host');
+})();
+
+// ---- 16. Vote tally counts only currently-connected voters ----------------
+(() => {
+  const g = forceGame(['werewolf', 'seer', 'villager', 'villager'], ['robber', 'troublemaker', 'tanner']);
+  while (g.phase === 'night') g.nightAction(g.activeStep.playerId, { skip: true });
+  g.toggleReady('p0'); g.toggleReady('p1'); g.toggleReady('p2'); g.toggleReady('p3');
+  ok(g.phase === 'vote', 'all ready -> vote phase');
+  g.castVote('p0', 'p1'); g.castVote('p1', 'p0');         // a & b vote
+  g.removePlayer('p1');                                   // b votes then drops
+  ok(g.phase === 'vote', 'still voting — c and d have not voted');
+  const v = g.viewFor('p0').vote;
+  eq([v.votedCount, v.total], [1, 3], 'a disconnected voter is dropped from both the tally and the total');
+})();
+
+// ---- 17. A skipped night turn is flagged for the reconnecting player ------
+(() => {
+  const g = forceGame(['werewolf', 'seer', 'robber'], ['villager', 'troublemaker', 'tanner']);
+  g.nightAction('p0', { skip: true });                   // lone werewolf acts
+  ok(g.activeStep.playerId === 'p1', 'the seer is the active actor');
+  g.removePlayer('p1');                                   // seer drops mid-turn
+  ok(g.byId('p1').missedTurn === true, 'the dropped active actor is flagged as having missed their turn');
+  ok(g.viewFor('p1').me.missedTurn === true, 'the missed-turn flag reaches the player view (shown on reconnect)');
+  ok(g.activeStep.playerId === 'p2', 'the night still advances to the next actor');
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

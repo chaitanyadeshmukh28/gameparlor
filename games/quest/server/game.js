@@ -145,6 +145,7 @@ export class Game extends BaseGame {
       case 'play':        return this.onPlay(me, !!msg.success);
       case 'assassinate': return this.onAssassinate(me, msg.target);
       case 'proceed':     return this.onProceed(me);
+      case 'forceResolve':return this.onForceResolve(me);
       default:            return { error: 'Unknown action.' };
     }
   }
@@ -152,13 +153,20 @@ export class Game extends BaseGame {
   onReady(me) {
     if (this.phase !== 'reveal') return { error: 'Nothing to acknowledge right now.' };
     me.ready = true;
-    const pending = this.players.filter((p) => p.connected && !p.ready);
-    if (pending.length === 0) {
-      this.phase = 'propose';
-      this.proposal = null;
-      this.note(`${this.leader().name} leads the first quest.`);
-    }
+    this.maybeStartProposing();
     return {};
+  }
+
+  // Advance out of the night reveal once every CONNECTED player has sworn in.
+  maybeStartProposing() {
+    if (this.phase !== 'reveal') return false;
+    const connected = this.players.filter((p) => p.connected);
+    if (connected.length === 0 || connected.some((p) => !p.ready)) return false;
+    if (!this.leader().connected) this.nextLeader();
+    this.phase = 'propose';
+    this.proposal = null;
+    this.note(`${this.leader().name} leads the first quest.`);
+    return true;
   }
 
   onPropose(me, team) {
@@ -179,16 +187,25 @@ export class Game extends BaseGame {
   onVote(me, approve) {
     if (this.phase !== 'vote') return { error: 'There is no team to vote on.' };
     this.votes[me.id] = approve;
-    // Everyone votes (Avalon majority is over the whole table). Resolve once all in.
+    // Resolve once every CONNECTED player has cast a ballot. Disconnected seats
+    // cannot vote and are treated as absent (see resolveVote — majority is over
+    // the connected court; an absent seat counts toward neither side).
     const voters = this.players.filter((p) => p.connected);
-    if (voters.every((p) => this.votes[p.id] !== undefined)) this.resolveVote();
+    if (voters.length > 0 && voters.every((p) => this.votes[p.id] !== undefined)) this.resolveVote();
     return {};
   }
 
   resolveVote() {
-    const approves = Object.values(this.votes).filter(Boolean).length;
-    const approved = approves * 2 > this.n; // strict majority; ties reject
-    this.lastVote = { votes: { ...this.votes }, approved, leader: this.leader().id };
+    // Strict majority of the CONNECTED court (ties reject). Disconnected seats
+    // are excluded from both the count and the denominator, so a player who
+    // drops mid-vote can never silently swing or stall the tally.
+    const connected = this.players.filter((p) => p.connected);
+    const approves = connected.filter((p) => this.votes[p.id] === true).length;
+    const approved = approves * 2 > connected.length;
+    // Only surface ballots from seated players (keeps the reveal clean).
+    const votes = {};
+    for (const p of this.players) if (this.votes[p.id] !== undefined) votes[p.id] = this.votes[p.id];
+    this.lastVote = { votes, approved, leader: this.leader().id };
     this.phase = 'voteReveal';
     this.note(approved ? 'The team is approved.' : 'The team is rejected.');
   }
@@ -277,6 +294,104 @@ export class Game extends BaseGame {
     return {};
   }
 
+  // ---- disconnect resilience ----------------------------------------------
+  // Active phases (vote/quest/assassin/propose/reveal) used to stall forever if
+  // the player they were waiting on closed their tab. resolveStalls re-evaluates
+  // the current phase counting only CONNECTED players. It is called twice by the
+  // server: immediately on a disconnect (force=false — resolves only if the
+  // remaining connected players have already done everything), and again after a
+  // short grace timer (force=true — the absent actor never returned, so default
+  // their action: missing vote = absent, missing quest card = forced Success,
+  // absent leader = pass leadership, absent Assassin = a miss / good wins).
+  resolveStalls(force = false) {
+    switch (this.phase) {
+      case 'reveal':
+        return this.maybeStartProposing();
+
+      case 'vote': {
+        const connected = this.players.filter((p) => p.connected);
+        if (connected.length === 0) return false;
+        const allConnectedVoted = connected.every((p) => this.votes[p.id] !== undefined);
+        if (allConnectedVoted || force) { this.resolveVote(); return true; }
+        return false;
+      }
+
+      case 'quest': {
+        if (!this.proposal) return false;
+        const played = (id) => this.questCards[id] !== undefined;
+        if (this.proposal.every(played)) { this.resolveQuest(); return true; }
+        const connectedUnplayed = this.proposal.filter((id) => this.byId(id)?.connected && !played(id));
+        if (force && connectedUnplayed.length === 0) {
+          // Absent members never laid a card — the realm assumes their loyalty.
+          for (const id of this.proposal) if (!played(id)) this.questCards[id] = true;
+          this.resolveQuest();
+          return true;
+        }
+        return false;
+      }
+
+      case 'propose': {
+        const leader = this.leader();
+        if (force && leader && !leader.connected) {
+          this.nextLeader();
+          this.proposal = null;
+          this.note(`The Leader has vanished — leadership passes to ${this.leader().name}.`);
+          return true;
+        }
+        return false;
+      }
+
+      case 'assassin': {
+        const assassin = this.players.find((p) => p.role === 'assassin');
+        if (force && assassin && !assassin.connected) {
+          this.endGame('good', 'The Assassin never came to strike — Merlin lives. The realm is saved!', 'assassin_miss');
+          return true;
+        }
+        return false;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  // Is the current phase blocked solely because a needed player is offline?
+  // Drives the host force-resolve backstop and the grace-timer re-arm.
+  isStalledByDisconnect() {
+    switch (this.phase) {
+      case 'reveal': {
+        const connected = this.players.filter((p) => p.connected);
+        return connected.length > 0 && connected.every((p) => p.ready)
+          && this.players.some((p) => !p.connected && !p.ready);
+      }
+      case 'vote': {
+        const connected = this.players.filter((p) => p.connected);
+        return connected.length > 0 && connected.every((p) => this.votes[p.id] !== undefined)
+          && this.players.some((p) => !p.connected && this.votes[p.id] === undefined);
+      }
+      case 'quest':
+        return !!this.proposal && this.proposal.some((id) => !this.byId(id)?.connected && this.questCards[id] === undefined);
+      case 'propose':
+        return !!this.leader() && !this.leader().connected;
+      case 'assassin': {
+        const assassin = this.players.find((p) => p.role === 'assassin');
+        return !!assassin && !assassin.connected;
+      }
+      default:
+        return false;
+    }
+  }
+
+  // Host backstop — force the stalled round forward without waiting on a tab
+  // that may never return. Host-only safety net (see isStalledByDisconnect).
+  onForceResolve(me) {
+    if (me.id !== this.hostId) return { error: 'Only the host may force the round onward.' };
+    if (!this.isStalledByDisconnect()) return { error: 'Nothing is waiting on a disconnected player.' };
+    const changed = this.resolveStalls(true);
+    if (!changed) return { error: 'Could not force the round right now.' };
+    return {};
+  }
+
   // ---- per-player redacted view -------------------------------------------
   gameView(id) {
     const me = this.byId(id);
@@ -342,6 +457,9 @@ export class Game extends BaseGame {
       winner: this.winner,
       reason: this.reason,
       winPath: this.winPath,
+
+      // disconnect backstop — true when the round is blocked on an offline seat
+      stalled: this.isStalledByDisconnect(),
     };
   }
 }

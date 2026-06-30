@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Dev: client on 5173, server on PORT (default 3005) — proxy /ws to it.
+// Built into the shared root dist/undercover and served by the unified Parlor server
+// under /undercover/. WebSocket upgrades go to /undercover/ws.
 export default defineConfig({
   plugins: [react()],
   root: 'client',
-  build: { outDir: '../dist', emptyOutDir: true },
+  base: '/undercover/',
+  build: { outDir: '../../../dist/undercover', emptyOutDir: true },
   server: {
     port: 5173,
-    proxy: { '/ws': { target: `ws://localhost:${process.env.PORT || 3005}`, ws: true } },
+    proxy: { '/undercover/ws': { target: `ws://localhost:${process.env.PORT || 3000}`, ws: true } },
   },
 });

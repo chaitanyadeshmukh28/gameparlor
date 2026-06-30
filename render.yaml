@@ -1,11 +1,17 @@
 # One-click deploy to Render (free tier supports WebSockets).
 # Push this repo to GitHub, then in Render: New → Blueprint → pick this repo.
+# Render serves the whole Parlor suite from one web service:
+#   /            dashboard
+#   /coup /nightfall /cipher /council /undercover /sealed /quest /intercept
+# WebSocket upgrades on /<slug>/ws are routed to each game's engine.
 services:
   - type: web
-    name: coup
+    name: parlor
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    # --include=dev: Render sets NODE_ENV=production, which would otherwise
+    # skip the Vite/React build dependencies needed by `npm run build`.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:

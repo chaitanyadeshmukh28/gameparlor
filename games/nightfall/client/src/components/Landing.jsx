@@ -17,10 +17,10 @@ function FannedDeck() {
           <motion.div
             key={key}
             initial={{ y: 50, opacity: 0, rotate: 0 }}
-            animate={{ y: Math.abs(offset) * 9, opacity: 1, rotate: offset * 8, x: offset * 52 }}
+            animate={{ y: Math.abs(offset) * 8, opacity: 1, rotate: offset * 6, x: offset * 44 }}
             transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 110, damping: 17, delay: 0.15 + i * 0.08 }}
-            whileHover={reduce ? undefined : { y: Math.abs(offset) * 9 - 20, zIndex: 30 }}
-            className="absolute w-24 h-36 sm:w-28 sm:h-40 rounded-xl border p-2 flex flex-col"
+            whileHover={reduce ? undefined : { y: Math.abs(offset) * 8 - 20, zIndex: 30 }}
+            className="absolute w-[5.6rem] h-32 sm:w-28 sm:h-40 rounded-xl border p-2 flex flex-col"
             style={{
               background: `linear-gradient(165deg, ${r.color}30, #0c1130 64%)`,
               borderColor: `${r.color}88`,
@@ -31,7 +31,7 @@ function FannedDeck() {
             <div className="flex-1 grid place-items-center" style={{ color: r.color }}>
               <Emblem name={key} className="w-3/5 h-3/5" />
             </div>
-            <div className="text-center font-display text-sm font-semibold text-moon">{r.name}</div>
+            <div className="text-center font-display text-xs sm:text-sm font-semibold text-moon leading-tight">{r.name}</div>
           </motion.div>
         );
       })}

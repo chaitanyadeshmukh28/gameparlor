@@ -285,6 +285,185 @@ group('Assassin’s final strike');
   eq(v.merlin, idsByRole(g, 'merlin')[0], 'over view reveals Merlin to everyone');
 }
 
+// ---- 7. disconnect resilience -------------------------------------------
+group('Disconnect re-resolution during active phases');
+// Simulate the server: drop a seat, then run the immediate (and optionally the
+// grace) re-check the way index.js does.
+function drop(g, id) { g.removePlayer(id); g.resolveStalls(false); }
+
+{
+  // Voter drops mid-vote: once the remaining connected players have all voted,
+  // the round resolves immediately (no stall) — finding #1.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  g.handleMessage(ids[0], { t: 'propose', team: [ids[0], ids[1]] });
+  g.handleMessage(ids[0], { t: 'vote', approve: true });
+  g.handleMessage(ids[1], { t: 'vote', approve: true });
+  g.handleMessage(ids[2], { t: 'vote', approve: true });
+  g.handleMessage(ids[3], { t: 'vote', approve: true });
+  eq(g.phase, 'vote', 'still waiting on the 5th voter');
+  drop(g, ids[4]); // 5th closes their tab without voting
+  eq(g.phase, 'voteReveal', 'vote resolves once all CONNECTED players have voted');
+  eq(g.lastVote.approved, true, '4 connected approvals carry the vote');
+  eq(Object.keys(g.lastVote.votes).length, 4, 'only the four cast ballots are recorded');
+}
+
+{
+  // Approval majority is over CONNECTED players, not all seats — finding #6.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  g.handleMessage(ids[0], { t: 'propose', team: [ids[0], ids[1]] });
+  g.removePlayer(ids[4]); // one seat offline (no ballot)
+  // 3 of the 4 connected approve -> majority of the connected court approves
+  g.handleMessage(ids[0], { t: 'vote', approve: true });
+  g.handleMessage(ids[1], { t: 'vote', approve: true });
+  g.handleMessage(ids[2], { t: 'vote', approve: true });
+  g.handleMessage(ids[3], { t: 'vote', approve: false });
+  eq(g.phase, 'voteReveal', 'all connected ballots in -> resolves');
+  eq(g.lastVote.approved, true, '3 of 4 connected approve (would have failed against all 5 seats)');
+}
+{
+  // 2–2 split among 4 connected rejects (ties reject), absent seat ignored.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  g.handleMessage(ids[0], { t: 'propose', team: [ids[0], ids[1]] });
+  g.removePlayer(ids[4]);
+  g.handleMessage(ids[0], { t: 'vote', approve: true });
+  g.handleMessage(ids[1], { t: 'vote', approve: true });
+  g.handleMessage(ids[2], { t: 'vote', approve: false });
+  g.handleMessage(ids[3], { t: 'vote', approve: false });
+  eq(g.lastVote.approved, false, 'a tie among the connected court rejects');
+}
+
+{
+  // Quest member drops mid-quest: grace forces their missing card to Success
+  // (the loyal benefit of the doubt) and the quest resolves — finding #2.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  const assassin = idsByRole(g, 'assassin')[0];
+  g.handleMessage(ids[0], { t: 'propose', team: [ids[0], assassin] });
+  voteAll(g, ids);
+  g.handleMessage(ids[0], { t: 'proceed' });
+  eq(g.phase, 'quest', 'team approved -> quest');
+  g.handleMessage(ids[0], { t: 'play', success: true }); // good plays
+  g.removePlayer(assassin); // the evil member vanishes without laying a card
+  eq(g.resolveStalls(false), false, 'no immediate resolve — an offline member still owes a card');
+  ok(g.isStalledByDisconnect(), 'quest is flagged as stalled by a disconnect');
+  eq(g.resolveStalls(true), true, 'grace timer forces the quest forward');
+  eq(g.phase, 'questReveal', 'quest resolves after grace');
+  eq(g.lastQuest.failCount, 0, "absent member's missing card defaults to Success");
+  eq(g.lastQuest.passed, true, 'forced-success quest passes');
+}
+
+{
+  // Leader drops in propose: grace passes leadership to the next connected seat
+  // — finding #4.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles); // leaderIndex 0
+  eq(g.leaderIndex, 0, 'leader starts at seat 0');
+  g.removePlayer(ids[0]); // the leader closes their tab
+  eq(g.resolveStalls(false), false, 'no immediate change while leader might return');
+  ok(g.isStalledByDisconnect(), 'propose flagged as stalled');
+  eq(g.resolveStalls(true), true, 'grace passes leadership');
+  eq(g.phase, 'propose', 'still proposing, just under a new leader');
+  eq(g.leaderIndex, 1, 'leadership moved to the next connected seat');
+  ok(g.leader().connected, 'the new leader is connected');
+}
+
+{
+  // Assassin drops in the endgame: grace auto-resolves as a miss (good wins)
+  // — finding #3.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  winQuests(g, ids, [true, true, true]);
+  eq(g.phase, 'assassin', 'reached the assassin endgame');
+  const assassin = idsByRole(g, 'assassin')[0];
+  g.removePlayer(assassin);
+  ok(g.isStalledByDisconnect(), 'assassin phase flagged as stalled');
+  eq(g.resolveStalls(true), true, 'grace resolves the assassin phase');
+  eq(g.phase, 'over', 'game can now end');
+  eq(g.winner, 'good', 'an absent Assassin misses — the realm wins');
+  eq(g.winPath, 'assassin_miss', 'recorded as a miss');
+}
+
+{
+  // Reveal stall: last unready player drops -> the night advances on the rest.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = seat(5);
+  g.start(ids[0]);
+  g.players.forEach((p, i) => { p.role = roles[i]; p.team = ROLES[roles[i]].team; });
+  g.leaderIndex = 0;
+  eq(g.phase, 'reveal', 'in the night reveal');
+  ids.slice(0, 4).forEach((id) => g.handleMessage(id, { t: 'ready' }));
+  eq(g.phase, 'reveal', 'still waiting on the 5th to swear in');
+  drop(g, ids[4]); // 5th never acknowledges
+  eq(g.phase, 'propose', 'night advances once every connected player is ready');
+}
+
+// ---- 8. stable-id reconnect (no orphan ballot) ---------------------------
+group('Reconnect keeps a stable seat id (finding #5)');
+{
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  g.handleMessage(ids[0], { t: 'propose', team: [ids[0], ids[1]] });
+  const p0 = g.byId(ids[0]);
+  const token = p0.token;
+  g.handleMessage(ids[0], { t: 'vote', approve: true }); // votes, then drops
+  g.removePlayer(ids[0]);
+  // reconnect by name with the seat token — the engine hands a fresh socket uuid
+  const res = g.addPlayer('fresh-uuid-xyz', 'Player0', token);
+  ok(res && !res.error, 'reconnect with the correct token succeeds');
+  eq(res.id, ids[0], 'the seat id is STABLE across reconnect (uuid ignored)');
+  ok(g.byId(ids[0])?.connected, 'seat is marked connected again');
+  // finish the vote — there must be exactly 5 ballots, never 6
+  g.handleMessage(ids[0], { t: 'vote', approve: false }); // re-votes after reconnect
+  g.handleMessage(ids[1], { t: 'vote', approve: true });
+  g.handleMessage(ids[2], { t: 'vote', approve: true });
+  g.handleMessage(ids[3], { t: 'vote', approve: true });
+  g.handleMessage(ids[4], { t: 'vote', approve: true });
+  eq(Object.keys(g.lastVote.votes).length, 5, 'no orphan ballot — five seats, five ballots');
+  eq(g.lastVote.votes[ids[0]], false, 're-vote overwrote the seat’s prior ballot');
+  const approves = Object.values(g.lastVote.votes).filter(Boolean).length;
+  eq(approves, 4, 'tally counts each seat once');
+}
+{
+  // Seat-token guards against hijack.
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g } = started(5, roles);
+  const seatP = g.players[2];
+  // someone tries to grab the seat while it is still connected
+  const occ = g.addPlayer('attacker-1', seatP.name, seatP.token);
+  ok(occ && occ.error, 'cannot reclaim a seat that is still connected');
+  // now it disconnects; a wrong token is rejected
+  g.removePlayer(seatP.id);
+  const bad = g.addPlayer('attacker-2', seatP.name, 'not-the-token');
+  ok(bad && bad.error, 'a wrong seat token is rejected (anti-hijack)');
+  ok(!g.byId(seatP.id).connected, 'the rejected attempt did not seize the seat');
+  const good = g.addPlayer('rightful', seatP.name, seatP.token);
+  ok(good && !good.error && good.id === seatP.id, 'the rightful token reclaims the stable seat');
+}
+
+// ---- 9. host force-resolve backstop --------------------------------------
+group('Host force-resolve backstop');
+{
+  const roles = ['merlin', 'percival', 'loyal', 'assassin', 'morgana'];
+  const { g, ids } = started(5, roles);
+  // ids[0] is the host; make a DIFFERENT seat the (offline) leader so the host
+  // remains connected and able to force.
+  g.leaderIndex = 1;
+  eq(g.hostId, ids[0], 'seat 0 is the host');
+  // not stalled yet -> host force is a no-op error
+  ok(g.handleMessage(ids[0], { t: 'forceResolve' }).error, 'nothing to force while everyone is present');
+  g.removePlayer(ids[1]); // the leader closes their tab during propose
+  ok(g.isStalledByDisconnect(), 'propose is stalled on the offline leader');
+  // a non-host cannot force
+  ok(g.handleMessage(ids[2], { t: 'forceResolve' }).error, 'only the host may force');
+  // host forces it through
+  eq(g.handleMessage(ids[0], { t: 'forceResolve' }).error, undefined, 'host forces the stalled round');
+  eq(g.phase, 'propose', 'still proposing under fresh leadership');
+  ok(g.leader().connected, 'leadership handed to a connected seat');
+}
+
 // ---- summary -------------------------------------------------------------
 console.log(`\n${fail === 0 ? '✓ all passing' : '✗ failures'} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

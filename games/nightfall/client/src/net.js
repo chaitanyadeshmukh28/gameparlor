@@ -2,7 +2,13 @@
 // and render whatever state arrives. Same shape across every Parlor game.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const wsURL = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+const wsURL = () => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${import.meta.env.BASE_URL}ws`;
+
+// Per-seat secret token, persisted so only this device can reclaim its seat on a
+// reconnect (prevents seat/role hijack — see QA #2). Keyed by room code.
+const tokenKey = (code) => `nightfall.token.${(code || '').toUpperCase()}`;
+const loadToken = (code) => { try { return localStorage.getItem(tokenKey(code)) || undefined; } catch { return undefined; } };
+const saveToken = (code, token) => { try { if (code && token) localStorage.setItem(tokenKey(code), token); } catch { /* ignore */ } };
 
 export function useGameSocket() {
   const [status, setStatus] = useState('connecting'); // connecting | open | closed
@@ -27,7 +33,12 @@ export function useGameSocket() {
     sock.onerror = () => sock.close();
     sock.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
-      if (msg.t === 'joined') { setYou(msg.you); setCode(msg.code); rejoin.current = { name: rejoin.current?.name, code: msg.code }; }
+      if (msg.t === 'joined') {
+        setYou(msg.you); setCode(msg.code);
+        const token = msg.token ?? rejoin.current?.token;
+        saveToken(msg.code, token);
+        rejoin.current = { name: rejoin.current?.name, code: msg.code, token };
+      }
       else if (msg.t === 'state') setState(msg.state);
       else if (msg.t === 'error') setError({ message: msg.message, at: Date.now() });
     };
@@ -41,7 +52,11 @@ export function useGameSocket() {
   }, []);
 
   const create = useCallback((name) => { rejoin.current = { name }; send({ t: 'create', name }); }, [send]);
-  const join = useCallback((name, code) => { rejoin.current = { name, code }; send({ t: 'join', name, code }); }, [send]);
+  const join = useCallback((name, code) => {
+    const token = loadToken(code);
+    rejoin.current = { name, code, token };
+    send({ t: 'join', name, code, token });
+  }, [send]);
 
   return { status, state, you, code, error, send, create, join };
 }

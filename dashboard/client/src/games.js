@@ -10,7 +10,7 @@ export const GAMES = [
     accent: '#c0392f',          // velvet oxblood + gilt
     motif: 'coup',
     players: '2–6',
-    url: 'http://localhost:3001',
+    url: '/coup',
     basedOn: 'Coup',
   },
   {
@@ -20,7 +20,7 @@ export const GAMES = [
     accent: '#8a93e8',          // indigo & silver moonlight
     motif: 'nightfall',
     players: '3–8',
-    url: 'http://localhost:3002',
+    url: '/nightfall',
     basedOn: 'One Night Ultimate Werewolf',
   },
   {
@@ -30,7 +30,7 @@ export const GAMES = [
     accent: '#e0564f',          // ink black, red/blue teams, brass
     motif: 'cipher',
     players: '4–8',
-    url: 'http://localhost:3003',
+    url: '/cipher',
     basedOn: 'Codenames',
   },
   {
@@ -40,7 +40,7 @@ export const GAMES = [
     accent: '#5fae7e',          // forest green + brass + wax seals
     motif: 'council',
     players: '5–10',
-    url: 'http://localhost:3004',
+    url: '/council',
     basedOn: 'Secret Hitler',
   },
   {
@@ -50,7 +50,7 @@ export const GAMES = [
     accent: '#e8e8ec',          // film-noir B/W + neon
     motif: 'undercover',
     players: '3–8',
-    url: 'http://localhost:3005',
+    url: '/undercover',
     basedOn: 'Spyfall',
   },
   {
@@ -60,7 +60,7 @@ export const GAMES = [
     accent: '#e7a6bf',          // blush + rose-gold rococo
     motif: 'sealed',
     players: '2–6',
-    url: 'http://localhost:3006',
+    url: '/sealed',
     basedOn: 'Love Letter',
   },
   {
@@ -70,7 +70,7 @@ export const GAMES = [
     accent: '#6f9fd8',          // steel blue + crimson + gold
     motif: 'quest',
     players: '5–10',
-    url: 'http://localhost:3007',
+    url: '/quest',
     basedOn: 'Avalon / The Resistance',
   },
   {
@@ -80,7 +80,7 @@ export const GAMES = [
     accent: '#4fe08a',          // terminal green on black + amber
     motif: 'intercept',
     players: '4–8',
-    url: 'http://localhost:3008',
+    url: '/intercept',
     basedOn: 'Decrypto',
   },
 ];

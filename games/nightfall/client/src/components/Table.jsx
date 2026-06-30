@@ -39,8 +39,10 @@ export default function Table({ state, code, send, error }) {
         {/* The interactive content for the current phase. */}
         <div className="flex-1 min-h-0 overflow-y-auto pb-4 sm:pb-6 flex items-start justify-center">
           <AnimatePresence mode="wait">
+            {/* Key by phase only — within the night, Night stays mounted so it can
+                detect a freshly-learned card and play the reveal flip (QA #12). */}
             <motion.div
-              key={state.phase + (state.night?.youAreActive ? '-act' : '')}
+              key={state.phase}
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="w-full"
             >

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 const wsURL = () => {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${location.host}/ws`;
+  return `${proto}://${location.host}${import.meta.env.BASE_URL}ws`;
 };
 
 export function useCoupSocket() {

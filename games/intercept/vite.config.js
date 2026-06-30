@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Dev: client on 5173, server on PORT (default 3001) — proxy /ws to it.
+// Built into the shared root dist/intercept and served by the unified Parlor server
+// under /intercept/. WebSocket upgrades go to /intercept/ws.
 export default defineConfig({
   plugins: [react()],
   root: 'client',
-  build: { outDir: '../dist', emptyOutDir: true },
+  base: '/intercept/',
+  build: { outDir: '../../../dist/intercept', emptyOutDir: true },
   server: {
     port: 5173,
-    proxy: { '/ws': { target: `ws://localhost:${process.env.PORT || 3001}`, ws: true } },
+    proxy: { '/intercept/ws': { target: `ws://localhost:${process.env.PORT || 3000}`, ws: true } },
   },
 });

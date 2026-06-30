@@ -64,7 +64,7 @@ wss.on('connection', (ws) => {
           const code = (msg.code || '').trim().toUpperCase();
           if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
           if (!rooms.has(code)) return send(ws, { t: 'error', message: 'No game with that code.' });
-          attach(ws, code, name);
+          attach(ws, code, name, msg.token);
           break;
         }
         case 'start':   guard(room, () => room.game.start(ws.meta.playerId)); break;
@@ -88,17 +88,17 @@ wss.on('connection', (ws) => {
   ws.on('close', () => handleLeave(ws));
 });
 
-function attach(ws, code, name) {
+function attach(ws, code, name, token) {
   const room = rooms.get(code);
-  const player = room.game.addPlayer(randomUUID(), name);
+  const player = room.game.addPlayer(randomUUID(), name, token);
   if (!player) {
     return send(ws, { t: 'error', message: room.game.phase === 'lobby'
       ? 'That name is taken or the room is full.'
-      : 'Cannot join — the game is in progress and that name is unknown.' });
+      : 'Cannot rejoin — that seat is held by someone online, or this device is not its original owner.' });
   }
   ws.meta = { code, playerId: player.id };
   room.sockets.set(player.id, ws);
-  send(ws, { t: 'joined', code, you: player.id });
+  send(ws, { t: 'joined', code, you: player.id, token: player.token });
   broadcast(code);
 }
 

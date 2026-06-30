@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Dev: client on 5173, server on PORT (default 3001) — proxy /ws to it.
+// Built into the shared root dist/quest and served by the unified Parlor server
+// under /quest/. WebSocket upgrades go to /quest/ws.
 export default defineConfig({
   plugins: [react()],
   root: 'client',
-  build: { outDir: '../dist', emptyOutDir: true },
+  base: '/quest/',
+  build: { outDir: '../../../dist/quest', emptyOutDir: true },
   server: {
     port: 5173,
-    proxy: { '/ws': { target: `ws://localhost:${process.env.PORT || 3001}`, ws: true } },
+    proxy: { '/quest/ws': { target: `ws://localhost:${process.env.PORT || 3000}`, ws: true } },
   },
 });

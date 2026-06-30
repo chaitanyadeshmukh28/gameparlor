@@ -368,6 +368,70 @@ test('veto is rejected before five Fascist policies', () => {
   assert.ok(g.proposeVeto('p1').error, 'veto locked until 5 fascist policies');
 });
 
+// ---- reconnect: stable ids + per-seat token --------------------------------
+test('reconnect keeps the player id stable and positional state intact', () => {
+  const g = mkGame(5);
+  const pres = g.chairId;
+  const tok = g.byId(pres).token;
+  assert.ok(tok, 'a seat token is minted on first join');
+  g.removePlayer(pres);                       // president closes their tab
+  assert.equal(g.byId(pres).connected, false);
+  const rejoined = g.addPlayer('brand-new-uuid', g.byId(pres).name, tok);
+  assert.equal(rejoined.id, pres, 'id is unchanged on reconnect (not reassigned)');
+  assert.ok(g.order.includes(pres), 'seating order still references the seat');
+  assert.equal(g.chairId, pres, 'chairId still resolves to a real player');
+  assert.equal(rejoined.connected, true);
+  // The reconnected president is not locked out — they can still nominate.
+  assert.ok(!g.nominate(pres, g.eligibleDeputies()[0]).error, 'reconnected president can still act');
+});
+
+test('reconnect requires the seat token and refuses a live seat', () => {
+  const g = mkGame(5);
+  const name = g.byId('p1').name;
+  const tok = g.byId('p1').token;
+  g.removePlayer('p1');
+  assert.deepEqual(g.addPlayer('x', name), { error: 'bad-token' }, 'missing token refused');
+  assert.deepEqual(g.addPlayer('x', name, 'wrong'), { error: 'bad-token' }, 'wrong token refused');
+  assert.equal(g.addPlayer('x', name, tok).id, 'p1', 'correct token reclaims the seat');
+  assert.deepEqual(g.addPlayer('y', name, tok), { error: 'seat-occupied' }, 'a connected seat cannot be hijacked');
+});
+
+test('the seat token is never exposed in any player view', () => {
+  const g = mkGame(5);
+  assert.ok(g.viewFor('p0').players.every((p) => p.token === undefined), 'token absent from base view');
+  assert.ok(g.gameView('p0').players.every((p) => p.token === undefined), 'token absent from game view');
+});
+
+// ---- ballot resilience: timeout, disconnect, double-cast -------------------
+test('ballot timeout resolves the slate with outstanding ballots as Nein', () => {
+  const g = mkGame(5);
+  g.nominate('p0', 'p1');
+  g.castVote('p0', 'ja');
+  g.castVote('p1', 'ja');
+  assert.equal(g.phase, 'vote', 'still waiting on silent members');
+  g.ballotTimeout();
+  assert.equal(g.phase, 'voteReveal', 'the timeout resolves the vote');
+  assert.equal(g.lastElection.passed, false, 'silent members count as Nein → slate fails');
+});
+
+test('a disconnect by the last outstanding voter resolves the election', () => {
+  const g = mkGame(5);
+  g.nominate('p0', 'p1');
+  ['p0', 'p1', 'p2', 'p3'].forEach((id) => g.castVote(id, 'ja'));
+  assert.equal(g.phase, 'vote', 'still pending on p4');
+  g.removePlayer('p4'); // p4 drops mid-vote → auto-Nein, no connected member pending
+  assert.equal(g.phase, 'voteReveal', 'resolves once no connected member is pending');
+  assert.ok(g.lastElection.passed, '4 Ja vs p4 auto-Nein → passes');
+});
+
+test('a cast ballot is sealed — a second vote is rejected', () => {
+  const g = mkGame(5);
+  g.nominate('p0', 'p1');
+  assert.ok(!g.castVote('p2', 'ja').error, 'first ballot accepted');
+  assert.ok(g.castVote('p2', 'nein').error, 'second ballot refused');
+  assert.equal(g.votes['p2'], 'ja', 'the original ballot stands');
+});
+
 // ---- summary ---------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

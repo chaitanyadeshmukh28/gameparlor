@@ -1,126 +1,69 @@
+// The Parlor — one server for the whole suite.
+// Serves the dashboard at / and each game's built client under /<slug>/,
+// and routes WebSocket upgrades on /<slug>/ws to that game's room manager.
 import express from 'express';
-import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
-import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { CoupGame } from './game.js';
+
+import { createGameMount } from './mount.js';
+import { CoupGame } from '../games/coup/server/game.js';
+import { Game as NightfallGame } from '../games/nightfall/server/game.js';
+import { Game as CipherGame } from '../games/cipher/server/game.js';
+import { Game as CouncilGame } from '../games/council/server/game.js';
+import { Game as UndercoverGame } from '../games/undercover/server/game.js';
+import { Game as SealedGame } from '../games/sealed/server/game.js';
+import { Game as QuestGame } from '../games/quest/server/game.js';
+import { Game as InterceptGame } from '../games/intercept/server/game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
+const distRoot = path.join(__dirname, '..', 'dist');
 
-const app = express();
-const dist = path.join(__dirname, '..', 'dist');
-app.use(express.static(dist));
-app.get('/healthz', (_req, res) => res.send('ok'));
-
-const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-/** code -> { game: CoupGame, sockets: Map<playerId, ws> } */
-const rooms = new Map();
-
-const makeCode = () => {
-  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
-  let code;
-  do { code = Array.from({ length: 4 }, () => letters[Math.floor(Math.random() * letters.length)]).join(''); }
-  while (rooms.has(code));
-  return code;
+// slug -> engine. Order is the lineup order; slugs are the URL segments.
+const GAMES = {
+  coup: CoupGame,
+  nightfall: NightfallGame,
+  cipher: CipherGame,
+  council: CouncilGame,
+  undercover: UndercoverGame,
+  sealed: SealedGame,
+  quest: QuestGame,
+  intercept: InterceptGame,
 };
 
-const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+const app = express();
+app.get('/healthz', (_req, res) => res.send('ok'));
 
-function broadcast(code) {
-  const room = rooms.get(code);
-  if (!room) return;
-  for (const [pid, sock] of room.sockets) send(sock, { t: 'state', state: room.game.viewFor(pid) });
+// Per-game static assets + SPA fallback, mounted before the dashboard root.
+for (const slug of Object.keys(GAMES)) {
+  const gameDist = path.join(distRoot, slug);
+  app.use(`/${slug}`, express.static(gameDist));
+  app.get(`/${slug}`, (_req, res) => res.sendFile(path.join(gameDist, 'index.html')));
+  app.get(`/${slug}/*`, (_req, res) => res.sendFile(path.join(gameDist, 'index.html')));
 }
 
-function cleanup(code) {
-  const room = rooms.get(code);
-  if (!room) return;
-  const anyConnected = room.game.players.some((p) => p.connected);
-  if (!anyConnected) rooms.delete(code);
-}
+// Dashboard at the root.
+app.use(express.static(distRoot));
+app.get('*', (_req, res) => res.sendFile(path.join(distRoot, 'index.html')));
 
-wss.on('connection', (ws) => {
-  ws.meta = { code: null, playerId: null };
+const server = createServer(app);
 
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-    const room = ws.meta.code ? rooms.get(ws.meta.code) : null;
+// One WebSocket mount per game; route upgrades by /<slug>/ws.
+const mounts = Object.fromEntries(
+  Object.entries(GAMES).map(([slug, GameClass]) => [slug, createGameMount(GameClass)])
+);
 
-    try {
-      switch (msg.t) {
-        case 'create': {
-          const name = (msg.name || '').trim().slice(0, 16);
-          if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
-          const code = makeCode();
-          const game = new CoupGame(code);
-          rooms.set(code, { game, sockets: new Map() });
-          attach(ws, code, name);
-          break;
-        }
-        case 'join': {
-          const name = (msg.name || '').trim().slice(0, 16);
-          const code = (msg.code || '').trim().toUpperCase();
-          if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
-          if (!rooms.has(code)) return send(ws, { t: 'error', message: 'No table with that code.' });
-          attach(ws, code, name);
-          break;
-        }
-        case 'start':    guard(room, () => room.game.start(ws.meta.playerId)); break;
-        case 'action':   guard(room, () => room.game.declare(ws.meta.playerId, msg.action, msg.target)); break;
-        case 'respond':  guard(room, () => room.game.respond(ws.meta.playerId, msg.kind, msg.blockChar)); break;
-        case 'lose':     guard(room, () => room.game.loseInfluence(ws.meta.playerId, msg.cardIndex)); break;
-        case 'exchange': guard(room, () => room.game.finishExchange(ws.meta.playerId, msg.keep)); break;
-        case 'restart':  guard(room, () => room.game.resetToLobby(ws.meta.playerId)); break;
-        case 'leave':    handleLeave(ws); break;
-        default: break;
-      }
-    } catch (err) {
-      send(ws, { t: 'error', message: 'Something went wrong on the server.' });
-      console.error(err);
-    }
-
-    function guard(rm, fn) {
-      if (!rm) return send(ws, { t: 'error', message: 'You are not at a table.' });
-      const res = fn();
-      if (res && res.error) return send(ws, { t: 'error', message: res.error });
-      broadcast(ws.meta.code);
-    }
-  });
-
-  ws.on('close', () => handleLeave(ws));
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const m = pathname.match(/^\/([^/]+)\/ws$/);
+  const mount = m && mounts[m[1]];
+  if (!mount) { socket.destroy(); return; }
+  mount.wss.handleUpgrade(req, socket, head, (ws) => mount.wss.emit('connection', ws, req));
 });
 
-function attach(ws, code, name) {
-  const room = rooms.get(code);
-  const player = room.game.addPlayer(randomUUID(), name);
-  if (!player) {
-    return send(ws, { t: 'error', message: room.game.phase === 'lobby'
-      ? 'That name is taken or the table is full.'
-      : 'Cannot join — the game is in progress and that name is unknown.' });
-  }
-  ws.meta = { code, playerId: player.id };
-  room.sockets.set(player.id, ws);
-  send(ws, { t: 'joined', code, you: player.id });
-  broadcast(code);
-}
-
-function handleLeave(ws) {
-  const { code, playerId } = ws.meta;
-  if (!code || !rooms.has(code)) return;
-  const room = rooms.get(code);
-  room.sockets.delete(playerId);
-  room.game.removePlayer(playerId);
-  ws.meta = { code: null, playerId: null };
-  broadcast(code);
-  cleanup(code);
-}
-
-// SPA fallback for any non-API route.
-app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
-
-server.listen(PORT, () => console.log(`Coup running on :${PORT}`));
+server.listen(PORT, () => {
+  console.log(`The Parlor running on :${PORT}`);
+  console.log(`  dashboard  /`);
+  for (const slug of Object.keys(GAMES)) console.log(`  ${slug.padEnd(10)} /${slug}`);
+});

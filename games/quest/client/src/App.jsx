@@ -1,9 +1,9 @@
 // Quest — client. Server-authoritative; we render the per-player view and send
 // intents. Arthurian heraldry: steel night, gold leaf, crimson shadow.
-import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useGameSocket } from './net.js';
-import { Wordmark, Sigil, Ballot, ROMAN } from './components/Crest.jsx';
+import { Wordmark, Sigil, Ballot, SealCard, WaxSeal, ROMAN } from './components/Crest.jsx';
 import QuestTrack, { RejectTrack } from './components/QuestTrack.jsx';
 import Rules from './components/Rules.jsx';
 
@@ -143,13 +143,30 @@ function Game({ state, send, error }) {
       {/* Phase stage */}
       <main className="relative flex-1 min-h-0 mt-2 overflow-hidden">
         <AnimatePresence mode="wait">
+          {/* Absolutely fill `main` so the stage gets a DEFINITE height — a
+              flex-grown parent's height is indefinite for percentage (h-full)
+              resolution, which previously let tall stages (game-over) overflow
+              and push the restart button off-screen. */}
           <motion.div key={state.phase}
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.28 }} className="h-full">
+            transition={{ duration: 0.28 }} className="absolute inset-0">
             <Stage state={state} send={send} name={name} />
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Host backstop — surfaces only when the round is stuck on an offline seat */}
+      <AnimatePresence>
+        {state.stalled && state.isHost && state.phase !== 'over' && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="shrink-0 mt-2">
+            <button onClick={() => send({ t: 'forceResolve' })}
+              className="w-full rounded-lg border border-crimson/50 bg-crimson-deep/50 py-2 font-display text-xs tracking-emblem text-parch/90 hover:bg-crimson-deep/80">
+              A player is offline — force the round onward (host)
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {flash && (
@@ -291,31 +308,72 @@ function VoteStage({ state, send, name }) {
   );
 }
 
-/* ── Vote reveal — the ballot flip ── */
+/* ── Vote reveal — ballots drop one-by-one, then the wax seal thuds down ── */
 function VoteRevealStage({ state, send }) {
   const v = state.lastVote;
-  const approves = Object.values(v.votes).filter(Boolean).length;
+  const reduce = useReducedMotion();
+  // Reveal each seated ballot in turn (stable order so every device matches).
+  const ballots = state.players.filter((p) => v.votes[p.id] !== undefined)
+    .map((p) => ({ id: p.id, name: p.name, approve: !!v.votes[p.id] }));
+  const step = reduce ? 0 : 360; // ms between ballots landing
+  const [shown, setShown] = useState(reduce ? ballots.length : 0);
+  const [stamped, setStamped] = useState(reduce);
+
+  useEffect(() => {
+    if (reduce) { setShown(ballots.length); setStamped(true); return; }
+    setShown(0); setStamped(false);
+    const timers = [];
+    ballots.forEach((_, i) => timers.push(setTimeout(() => setShown(i + 1), step * (i + 1))));
+    timers.push(setTimeout(() => setStamped(true), step * ballots.length + 420));
+    return () => timers.forEach(clearTimeout);
+  }, [v, ballots.length, reduce]);
+
+  const ayes = ballots.slice(0, shown).filter((b) => b.approve);
+  const nays = ballots.slice(0, shown).filter((b) => !b.approve);
+  const total = ballots.length;
+  const minMs = step * total + 900;
+
+  const Column = ({ items, approve }) => (
+    <div className={`flex-1 min-h-0 rounded-xl border p-2 ${approve ? 'border-gold/40 bg-gold/[0.06]' : 'border-crimson/40 bg-crimson/[0.06]'}`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className={`eyebrow ${approve ? 'text-gold' : 'text-crimson-bright'}`}>{approve ? 'Aye' : 'Nay'}</span>
+        <span className={`font-display text-lg font-bold ${approve ? 'text-gold-bright' : 'text-crimson-bright'}`}>{items.length}</span>
+      </div>
+      <div className="space-y-1.5 overflow-y-auto no-bar">
+        <AnimatePresence>
+          {items.map((b) => (
+            <motion.div key={b.id} layout initial={{ opacity: 0, y: -10, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: 'spring', stiffness: 240, damping: 18 }}
+              className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${approve ? 'border-gold/30 bg-gold/5' : 'border-crimson/30 bg-crimson/5'}`}>
+              <Ballot approve={approve} size={20} />
+              <span className="font-display text-xs truncate">{b.name}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col gap-2 pb-1">
-      <Banner
-        title={v.approved ? 'Approved' : 'Rejected'}
-        sub={`${approves} approve · ${state.n - approves} reject`}
-        tone={v.approved ? 'good' : 'evil'}
-      />
-      <div className="grid grid-cols-2 gap-2 flex-1 min-h-0 overflow-y-auto no-bar content-start">
-        {state.players.map((p, i) => {
-          const ap = v.votes[p.id];
-          return (
-            <motion.div key={p.id} initial={{ rotateY: 180 }} animate={{ rotateY: 0 }}
-              transition={{ delay: i * 0.08, type: 'spring', stiffness: 160, damping: 14 }}
-              className={`flex items-center gap-2 rounded-lg border px-2 py-2 h-fit ${ap ? 'border-gold/40 bg-gold/5' : 'border-crimson/40 bg-crimson/5'}`}>
-              <Ballot approve={!!ap} size={24} />
-              <span className="font-display text-sm truncate">{p.name}</span>
+      <Banner title="The ballots fall" sub={`${shown}/${total} cast`} center />
+      <div className="relative flex-1 min-h-0 flex gap-2">
+        <Column items={ayes} approve />
+        <Column items={nays} approve={false} />
+        {/* the verdict wax seal, delayed until the last ballot has landed */}
+        <AnimatePresence>
+          {stamped && (
+            <motion.div initial={reduce ? false : { scale: 1.8, rotate: -16, opacity: 0 }}
+              animate={{ scale: 1, rotate: -7, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 16 }}
+              className="pointer-events-none absolute inset-0 grid place-items-center">
+              <WaxSeal approved={v.approved} />
             </motion.div>
-          );
-        })}
+          )}
+        </AnimatePresence>
       </div>
-      <ProceedButton state={state} send={send} label={v.approved ? 'On to the quest' : 'Pass leadership'} />
+      <ProceedButton state={state} send={send} minMs={minMs}
+        label={v.approved ? 'On to the quest' : 'Pass leadership'} />
     </div>
   );
 }
@@ -325,10 +383,35 @@ function QuestStage({ state, send }) {
   const onQuest = state.onQuest;
   const played = state.yourCard !== null;
   const isEvil = EVIL.has(state.yourRole?.key);
+  // The companions ride out: a face-down card slides in for each member as they
+  // commit (finding #13) — the table feels the quest assembling.
+  const members = (state.proposal || []).map((id) => state.players.find((p) => p.id === id)).filter(Boolean);
   return (
     <div className="flex h-full flex-col gap-2 pb-1">
       <Banner title={`Quest ${ROMAN[state.questIndex]} rides out`}
-        sub={`${state.questProgress}/${state.proposal.length} have played · ${state.needed === 2 ? 'needs 2 fails' : '1 fail sinks it'}`} />
+        sub={state.needed === 2 ? 'Two betrayals sink this quest' : 'A single betrayal sinks it'} center />
+      <div className="flex flex-wrap items-end justify-center gap-2 py-1">
+        {members.map((p) => (
+          <div key={p.id} className="flex flex-col items-center gap-1" style={{ width: 46 }}>
+            <div className="relative grid h-[60px] w-[46px] place-items-center">
+              <AnimatePresence>
+                {p.playedQuest ? (
+                  <motion.div key="card" initial={{ x: 40, opacity: 0, rotate: -8 }} animate={{ x: 0, opacity: 1, rotate: 0 }}
+                    transition={{ type: 'spring', stiffness: 220, damping: 18 }} className="absolute">
+                    <SealCard kind="back" size={46} />
+                  </motion.div>
+                ) : (
+                  <motion.div key="slot" initial={false} animate={{ opacity: [0.4, 0.8, 0.4] }}
+                    transition={{ duration: 1.8, repeat: Infinity }}
+                    className="absolute h-[58px] w-[44px] rounded-lg border border-dashed border-gold/25" />
+                )}
+              </AnimatePresence>
+            </div>
+            <span className="font-display text-[10px] text-parch/60 truncate w-full text-center">{p.name}</span>
+          </div>
+        ))}
+      </div>
+      <div className="text-center text-xs text-parch/50">{state.questProgress}/{members.length} companions have laid a card</div>
       <SeatList state={state} highlightTeam />
       {!onQuest ? (
         <p className="text-center text-sm text-parch/50 animate-pulse">You ride not on this quest. Await its outcome…</p>
@@ -353,26 +436,57 @@ function QuestStage({ state, send }) {
   );
 }
 
-/* ── Quest reveal — the suspenseful flip ── */
+/* ── Quest reveal — heraldic seals flip; betrayals land last with a shake ── */
 function QuestRevealStage({ state, send }) {
   const q = state.lastQuest;
-  const cards = Array.from({ length: q.size }, (_, i) => i < q.failCount);
+  const reduce = useReducedMotion();
+  // Successes flip first; the crimson betrayals land LAST for maximum dread.
+  const order = [
+    ...Array(Math.max(0, q.size - q.failCount)).fill('success'),
+    ...Array(q.failCount).fill('fail'),
+  ];
+  const step = reduce ? 0 : 480; // ms between flips
+  const [flipped, setFlipped] = useState(reduce ? order.length : 0);
+  const [shake, setShake] = useState(false);
+
+  useEffect(() => {
+    if (reduce) { setFlipped(order.length); return; }
+    setFlipped(0); setShake(false);
+    const timers = [];
+    order.forEach((kind, i) => timers.push(setTimeout(() => {
+      setFlipped(i + 1);
+      if (kind === 'fail') { setShake(true); setTimeout(() => setShake(false), 560); }
+    }, step * (i + 1))));
+    return () => timers.forEach(clearTimeout);
+  }, [q, order.length, reduce]);
+
+  const minMs = step * order.length + 700;
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4">
+    <div className={`flex h-full flex-col items-center justify-center gap-4 ${shake ? 'shake' : ''}`}>
       <Banner title={q.passed ? 'The quest succeeds' : 'The quest fails'}
         sub={q.failCount ? `${q.failCount} betrayal${q.failCount === 1 ? '' : 's'} revealed` : 'Not a single betrayal'}
         tone={q.passed ? 'good' : 'evil'} center />
       <div className="flex flex-wrap justify-center gap-3">
-        {cards.map((isFail, i) => (
-          <motion.div key={i} initial={{ rotateY: 180, y: 14 }} animate={{ rotateY: 0, y: 0 }}
-            transition={{ delay: i * 0.22, type: 'spring', stiffness: 140, damping: 13 }}
-            className={`grid h-20 w-14 place-items-center rounded-lg border-2 font-display text-xs font-bold tracking-wider
-              ${isFail ? 'border-crimson-bright bg-crimson-deep text-parch' : 'border-gold bg-steel-mid text-gold-bright'}`}>
-            {isFail ? 'FAIL' : 'PASS'}
-          </motion.div>
-        ))}
+        {order.map((kind, i) => {
+          const isUp = i < flipped;
+          return (
+            <div key={i} className="relative" style={{ width: 56, height: 72, perspective: 600 }}>
+              <motion.div initial={false} animate={{ rotateY: isUp ? 0 : 180 }}
+                transition={{ type: 'spring', stiffness: 150, damping: 15 }}
+                style={{ transformStyle: 'preserve-3d', position: 'relative', width: 56, height: 72 }}>
+                <div style={{ backfaceVisibility: 'hidden', position: 'absolute', inset: 0 }}>
+                  <SealCard kind={kind} size={56} />
+                </div>
+                <div style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', position: 'absolute', inset: 0 }}>
+                  <SealCard kind="back" size={56} />
+                </div>
+              </motion.div>
+            </div>
+          );
+        })}
       </div>
-      <ProceedButton state={state} send={send} label="Continue" />
+      <ProceedButton state={state} send={send} label="Continue" minMs={minMs} />
     </div>
   );
 }
@@ -427,15 +541,81 @@ function winExplanation(state) {
   }
 }
 
+/* ── The Assassin's strike — a held cinematic before the verdict (finding #12) ── */
+function AssassinCinematic({ state, onDone }) {
+  const reduce = useReducedMotion();
+  const hit = state.winPath === 'assassin_hit';
+  const nameOf = (id) => state.players.find((p) => p.id === id)?.name ?? '—';
+  const target = nameOf(state.assassinTarget);
+  const merlin = nameOf(state.merlin);
+  // aim → slash → reveal
+  const [beat, setBeat] = useState('aim');
+  useEffect(() => {
+    if (reduce) { onDone(); return; }
+    const t1 = setTimeout(() => setBeat('slash'), 900);
+    const t2 = setTimeout(() => setBeat('reveal'), 1700);
+    const t3 = setTimeout(() => onDone(), 4200);
+    return () => { [t1, t2, t3].forEach(clearTimeout); };
+  }, [reduce]);
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-5 px-2">
+      <p className="eyebrow text-crimson-bright">The Assassin strikes</p>
+      <div className="relative grid place-items-center" style={{ width: 220, height: 200 }}>
+        {/* target card */}
+        <motion.div animate={beat === 'slash' ? { x: [0, -6, 6, -3, 0] } : {}} transition={{ duration: 0.5 }}
+          className="relative grid place-items-center rounded-2xl border-2 border-crimson/50 bg-steel-mid/50 px-6 py-7">
+          <Sigil role={state.winPath ? 'loyal' : 'loyal'} size={54} />
+          <div className="mt-2 font-display text-lg font-bold text-parch">{target}</div>
+          {/* the crimson slash */}
+          <AnimatePresence>
+            {(beat === 'slash' || beat === 'reveal') && (
+              <motion.div initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }}
+                transition={{ duration: 0.28 }} style={{ originX: 0, rotate: -18 }}
+                className="pointer-events-none absolute left-[-10%] right-[-10%] top-1/2 h-1.5 rounded-full bg-crimson-bright shadow-[0_0_14px_rgba(210,58,79,0.9)]" />
+            )}
+          </AnimatePresence>
+        </motion.div>
+        {/* the dagger sweeping across */}
+        <motion.div className="absolute text-crimson-bright"
+          initial={{ x: -130, y: -90, rotate: -20, opacity: 0 }}
+          animate={beat === 'aim' ? { x: 110, y: 90, rotate: -20, opacity: 1 }
+            : { x: 150, y: 120, rotate: -20, opacity: 0 }}
+          transition={{ duration: beat === 'aim' ? 0.9 : 0.5, ease: 'easeIn' }}>
+          <Sigil role="assassin" size={64} />
+        </motion.div>
+      </div>
+      <AnimatePresence>
+        {beat === 'reveal' && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            className={`text-center rounded-xl border px-4 py-3 ${hit ? 'border-crimson/50 bg-crimson/10' : 'border-gold/40 bg-gold/10'}`}>
+            <p className="font-display text-sm text-parch/80">Merlin was</p>
+            <p className={`font-display text-xl font-bold ${hit ? 'text-crimson-bright' : 'gold-leaf'}`}>{merlin}</p>
+            <p className={`mt-1 font-display text-base font-bold ${hit ? 'text-crimson-bright' : 'gold-leaf'}`}>
+              {hit ? 'Struck true — Evil wins' : 'The blade missed — Good wins'}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <button onClick={onDone} className="text-xs text-parch/40 underline underline-offset-2">Skip to the aftermath</button>
+    </div>
+  );
+}
+
 function OverStage({ state, send }) {
   const good = state.winner === 'good';
   const accent = good ? 'gold-leaf' : 'text-crimson-bright';
   const [why, verdict] = winExplanation(state);
   const usedAssassin = state.winPath === 'assassin_hit' || state.winPath === 'assassin_miss';
   const total = state.teamSizes?.length || 5;
+  const [cinematic, setCinematic] = useState(usedAssassin);
+
+  if (cinematic) return <AssassinCinematic state={state} onDone={() => setCinematic(false)} />;
 
   return (
-    <div className="flex h-full flex-col items-center justify-start gap-2.5 pb-1 overflow-y-auto no-bar">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="scroll-fade flex-1 min-h-0">
+      <div className="flex h-full flex-col items-center justify-start gap-2.5 overflow-y-auto no-bar pb-3">
       {/* 1 — WINNER */}
       <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 160, damping: 14 }} className="text-center mt-1">
@@ -514,16 +694,20 @@ function OverStage({ state, send }) {
           <span className="text-gold">Gold</span> serves Arthur · <span className="text-crimson-bright">Crimson</span> serves Mordred
         </p>
       </div>
+      </div>
+      </div>
 
-      {/* 4 — play again */}
-      {state.isHost ? (
-        <button onClick={() => send({ t: 'restart' })}
-          className="mt-1 w-full shrink-0 rounded-lg bg-gradient-to-b from-gold-bright to-gold py-3 font-display tracking-emblem text-steel-deep font-bold">
-          Hold court again
-        </button>
-      ) : (
-        <p className="mt-1 text-sm text-parch/50">Awaiting the host to begin anew…</p>
-      )}
+      {/* 4 — play again — PINNED footer so it is always reachable (finding #7) */}
+      <div className="shrink-0 pt-2">
+        {state.isHost ? (
+          <button onClick={() => send({ t: 'restart' })}
+            className="w-full rounded-lg bg-gradient-to-b from-gold-bright to-gold py-3 font-display tracking-emblem text-steel-deep font-bold">
+            Hold court again
+          </button>
+        ) : (
+          <p className="text-center text-sm text-parch/50">Awaiting the host to begin anew…</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -541,7 +725,8 @@ function Banner({ title, sub, tone, center }) {
 
 function SeatList({ state, selectable, selected = [], onToggle, highlightTeam }) {
   return (
-    <ul className="flex-1 min-h-0 overflow-y-auto no-bar space-y-1.5 pr-0.5">
+    <div className="scroll-fade flex-1 min-h-0">
+    <ul className="h-full overflow-y-auto no-bar space-y-1.5 pr-0.5">
       {state.players.map((p) => {
         const isSel = selected.includes(p.id);
         const onTeam = highlightTeam ? p.onTeam : isSel;
@@ -576,18 +761,34 @@ function SeatList({ state, selectable, selected = [], onToggle, highlightTeam })
         );
       })}
     </ul>
+    </div>
   );
 }
 
-function ProceedButton({ state, send, label }) {
-  // Any player may advance the reveal; the server ignores extra taps.
+function ProceedButton({ state, send, label, minMs = 0 }) {
+  // Any player may advance the reveal; the server ignores extra taps. A minimum
+  // on-screen duration stops one early tap from skipping the reveal animation
+  // for the whole table (finding #14).
+  const reduce = useReducedMotion();
+  const wait = reduce ? 0 : minMs;
+  const [ready, setReady] = useState(wait === 0);
+  const [left, setLeft] = useState(Math.ceil(wait / 1000));
+  useEffect(() => {
+    if (wait === 0) { setReady(true); return; }
+    setReady(false);
+    const done = setTimeout(() => setReady(true), wait);
+    const tick = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => { clearTimeout(done); clearInterval(tick); };
+  }, [wait]);
   return (
     <div className="mt-auto w-full">
-      <button onClick={() => send({ t: 'proceed' })}
-        className="w-full rounded-lg bg-gradient-to-b from-gold-bright to-gold py-3 font-display tracking-emblem text-steel-deep font-bold">
-        {label}
+      <button onClick={() => send({ t: 'proceed' })} disabled={!ready}
+        className="w-full rounded-lg bg-gradient-to-b from-gold-bright to-gold py-3 font-display tracking-emblem text-steel-deep font-bold disabled:opacity-40">
+        {ready ? label : `${label} (${left}s)`}
       </button>
-      <p className="mt-1 text-center text-[11px] text-parch/40">Anyone may continue when ready.</p>
+      <p className="mt-1 text-center text-[11px] text-parch/40">
+        {ready ? 'Anyone may continue when ready.' : 'Let the reveal play out…'}
+      </p>
     </div>
   );
 }

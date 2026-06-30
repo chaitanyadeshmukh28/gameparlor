@@ -78,6 +78,7 @@ export class Game extends BaseGame {
       p.dealtRole = roles[i];
       p.info = [];     // private night knowledge (only ever sent to this player)
       p.ready = false;
+      p.missedTurn = false;
     });
 
     // Werewolves learn each other up front.
@@ -104,14 +105,18 @@ export class Game extends BaseGame {
 
   cleanup() {
     this._initRound();
-    this.players.forEach((p) => { p.info = []; p.ready = false; p.dealtRole = null; });
+    this.players.forEach((p) => { p.info = []; p.ready = false; p.dealtRole = null; p.missedTurn = false; });
   }
 
   // ---- disconnect handling ----------------------------------------------
   removePlayer(id) {
     const wasActive = this.phase === 'night' && this.activeStep?.playerId === id;
+    const p = this.byId(id);
     super.removePlayer(id);
-    if (wasActive) { this.stepIndex++; this._advanceNight(); }
+    if (wasActive) {
+      if (p) p.missedTurn = true;   // dropped mid-turn — they never got to act
+      this.stepIndex++; this._advanceNight();
+    }
     else if (this.phase === 'day') this._maybeAllReady();
     else if (this.phase === 'vote') this._maybeResolveVotes();
   }
@@ -121,7 +126,7 @@ export class Game extends BaseGame {
     while (this.stepIndex < this.wakeQueue.length) {
       const step = this.wakeQueue[this.stepIndex];
       const p = this.byId(step.playerId);
-      if (!p || !p.connected) { this.stepIndex++; continue; } // never stall on an absentee
+      if (!p || !p.connected) { if (p) p.missedTurn = true; this.stepIndex++; continue; } // never stall on an absentee
       this.activeStep = step;
       this.phase = 'night';
       return;
@@ -375,7 +380,7 @@ export class Game extends BaseGame {
       composition: this.phase === 'lobby'
         ? (this.players.length >= this.minPlayers ? compositionOf(buildRoleList(this.players.length)) : {})
         : compositionOf(this.dealt),
-      me: me ? { seat: me.seat, role: me.dealtRole ?? null, info: me.info ?? [], ready: !!me.ready } : null,
+      me: me ? { seat: me.seat, role: me.dealtRole ?? null, info: me.info ?? [], ready: !!me.ready, missedTurn: !!me.missedTurn } : null,
     };
 
     // Players list — strictly redacted outside the result reveal.
@@ -405,7 +410,9 @@ export class Game extends BaseGame {
     if (this.phase === 'vote') {
       view.vote = {
         youVoted: !!this.votes[id],
-        votedCount: Object.keys(this.votes).length,
+        // Count only votes from currently-connected players so the tally can't
+        // read "done" while a present player still hasn't voted (QA #6).
+        votedCount: this.players.filter((p) => p.connected && this.votes[p.id]).length,
         total: this.players.filter((p) => p.connected).length,
       };
     }

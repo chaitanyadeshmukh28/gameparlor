@@ -30,6 +30,7 @@ export default function Card({ role, faceUp = false, dead = false, size = 'md', 
     >
       {/* Face */}
       <div
+        aria-hidden={!show}
         className="absolute inset-0 backface-hidden rounded-xl border p-1.5 sm:p-2 flex flex-col"
         style={{
           background: r
@@ -40,9 +41,13 @@ export default function Card({ role, faceUp = false, dead = false, size = 'md', 
           filter: dead ? 'grayscale(0.5)' : 'none',
         }}
       >
-        <div className="font-mono uppercase tracking-[0.15em] !text-[0.42rem] sm:!text-[0.5rem] self-start opacity-80" style={{ color }}>
-          {r?.team === 'werewolf' ? 'Werewolf' : r?.team === 'outcast' ? 'Tanner' : 'Village'}
-        </div>
+        {/* Only tag a team when a real role is shown — a face-down card must not
+            leak a stray "Village" into the DOM / screen readers (QA #11). */}
+        {r && (
+          <div className="font-mono uppercase tracking-[0.15em] !text-[0.42rem] sm:!text-[0.5rem] self-start opacity-80" style={{ color }}>
+            {r.team === 'werewolf' ? 'Werewolf' : r.team === 'outcast' ? 'Tanner' : 'Village'}
+          </div>
+        )}
         <div className="flex-1 grid place-items-center" style={{ color }}>
           <Emblem name={role} className="w-3/5 h-3/5 drop-shadow" />
         </div>
@@ -56,13 +61,21 @@ export default function Card({ role, faceUp = false, dead = false, size = 'md', 
         )}
         {dead && (
           <div className="absolute inset-0 grid place-items-center">
-            <span className="font-display text-3xl text-blood-bright/90">✕</span>
+            <motion.span
+              className="font-display text-3xl text-blood-bright/90"
+              initial={{ scale: 2.4, opacity: 0, rotate: -18 }}
+              animate={{ scale: 1, opacity: 1, rotate: -8 }}
+              transition={{ type: 'spring', stiffness: 600, damping: 16, delay: delay + 0.25 }}
+            >
+              ✕
+            </motion.span>
           </div>
         )}
       </div>
 
       {/* Back — a silver crescent on the indigo guilloché */}
       <div
+        aria-hidden={show}
         className="absolute inset-0 backface-hidden rounded-xl border border-frost/30 card-back grid place-items-center"
         style={{ transform: 'rotateY(180deg)' }}
       >

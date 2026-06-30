@@ -31,13 +31,14 @@ export default function Vote({ state, send }) {
             <button
               key={p.id}
               onClick={() => accuse(p.id)}
-              disabled={!p.connected}
               className={`flex items-center gap-2 rounded-lg border px-3 py-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-frost ${
                 chosen ? 'border-blood bg-blood/20 text-moon' : 'border-moon/15 bg-white/[0.03] text-moon hover:border-blood/60 hover:bg-blood/10'
-              } ${!p.connected ? 'opacity-50' : ''}`}
+              }`}
             >
+              {/* Disconnected players stay accusable — the village can still hang an
+                  absentee, so the last connected player never gets vote-locked (QA #3). */}
               <span className="grid place-items-center w-8 h-8 rounded-full bg-blood/15 text-blood-bright font-display font-bold">{p.name[0]?.toUpperCase()}</span>
-              <span className="truncate flex-1">{p.name}{chosen && <span className="text-blood-bright"> ◂ accused</span>}</span>
+              <span className={`truncate flex-1 ${!p.connected ? 'opacity-60' : ''}`}>{p.name}{!p.connected && <span className="text-moon-faint text-xs"> (offline)</span>}{chosen && <span className="text-blood-bright"> ◂ accused</span>}</span>
               {p.voted && <span className="text-xs text-frost" title="has voted">✓</span>}
             </button>
           );

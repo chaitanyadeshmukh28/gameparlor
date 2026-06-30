@@ -6,6 +6,13 @@ export const ROLES = {
   hitler:  { name: 'Hitler', team: 'bad', tag: 'Get yourself elected Chancellor.' },
 };
 
+// Graceful fallbacks: an unknown role/power key (e.g. a stale server speaking an
+// older vocabulary) degrades to a neutral label instead of crashing the tree.
+export const FALLBACK_ROLE = { name: 'Member', team: 'good', tag: '' };
+export const FALLBACK_POWER = { name: 'Executive Power', verb: 'Act', hint: 'Wield this power.' };
+export const roleOf = (key) => ROLES[key] ?? FALLBACK_ROLE;
+export const powerOf = (key) => POWERS[key] ?? FALLBACK_POWER;
+
 // Visual accent tokens: 'order' = the green (Liberal) rail, 'wax' = the crimson (Fascist) rail.
 export const POLICY = {
   liberal: { name: 'Liberal', accent: 'order' },

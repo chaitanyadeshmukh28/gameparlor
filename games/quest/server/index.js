@@ -17,8 +17,12 @@ app.get('/healthz', (_req, res) => res.send('ok'));
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-/** code -> { game: Game, sockets: Map<playerId, ws> } */
+/** code -> { game: Game, sockets: Map<playerId, ws>, graceTimer } */
 const rooms = new Map();
+
+// How long the active actor (voter / quest member / leader / assassin) has to
+// reconnect before the server forces the stalled round forward on its own.
+const GRACE_MS = 7000;
 
 const makeCode = () => {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
@@ -38,7 +42,28 @@ function broadcast(code) {
 
 function cleanup(code) {
   const room = rooms.get(code);
-  if (room && !room.game.players.some((p) => p.connected)) rooms.delete(code);
+  if (room && !room.game.players.some((p) => p.connected)) {
+    clearTimeout(room.graceTimer);
+    rooms.delete(code);
+  }
+}
+
+// Schedule the force-resolve backstop. If, after the grace window, the round is
+// still blocked on an offline seat, default that seat's action and move on. Re-arm
+// if forcing surfaces a fresh stall (e.g. the next leader is also gone).
+function scheduleGrace(code) {
+  const room = rooms.get(code);
+  if (!room) return;
+  clearTimeout(room.graceTimer);
+  if (!room.game.isStalledByDisconnect()) return;
+  room.graceTimer = setTimeout(() => {
+    const r = rooms.get(code);
+    if (!r || !r.game.players.some((p) => p.connected)) return;
+    if (r.game.resolveStalls(true)) {
+      broadcast(code);
+      scheduleGrace(code); // a forced step can reveal another offline blocker
+    }
+  }, GRACE_MS);
 }
 
 wss.on('connection', (ws) => {
@@ -56,7 +81,7 @@ wss.on('connection', (ws) => {
           if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
           const code = makeCode();
           rooms.set(code, { game: new Game(code), sockets: new Map() });
-          attach(ws, code, name);
+          attach(ws, code, name, msg.token);
           break;
         }
         case 'join': {
@@ -64,7 +89,7 @@ wss.on('connection', (ws) => {
           const code = (msg.code || '').trim().toUpperCase();
           if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
           if (!rooms.has(code)) return send(ws, { t: 'error', message: 'No game with that code.' });
-          attach(ws, code, name);
+          attach(ws, code, name, msg.token);
           break;
         }
         case 'start':   guard(room, () => room.game.start(ws.meta.playerId)); break;
@@ -88,17 +113,22 @@ wss.on('connection', (ws) => {
   ws.on('close', () => handleLeave(ws));
 });
 
-function attach(ws, code, name) {
+function attach(ws, code, name, token) {
   const room = rooms.get(code);
-  const player = room.game.addPlayer(randomUUID(), name);
-  if (!player) {
-    return send(ws, { t: 'error', message: room.game.phase === 'lobby'
+  const result = room.game.addPlayer(randomUUID(), name, token);
+  if (!result || result.error) {
+    const message = result?.error || (room.game.phase === 'lobby'
       ? 'That name is taken or the room is full.'
-      : 'Cannot join — the game is in progress and that name is unknown.' });
+      : 'Cannot join — the game is in progress and that name is unknown.');
+    return send(ws, { t: 'error', message });
   }
+  const player = result;
   ws.meta = { code, playerId: player.id };
   room.sockets.set(player.id, ws);
-  send(ws, { t: 'joined', code, you: player.id });
+  // The per-seat token lets this device reclaim the seat after a disconnect.
+  send(ws, { t: 'joined', code, you: player.id, token: player.token });
+  // A reconnection may let a stalled round resume; clear any pending backstop.
+  clearTimeout(room.graceTimer);
   broadcast(code);
 }
 
@@ -109,7 +139,11 @@ function handleLeave(ws) {
   room.sockets.delete(playerId);
   room.game.removePlayer(playerId);
   ws.meta = { code: null, playerId: null };
+  // Immediately re-check: the disconnect may unblock a round whose remaining
+  // connected players have already acted. Otherwise arm the grace backstop.
+  if (room.game.resolveStalls) room.game.resolveStalls(false);
   broadcast(code);
+  scheduleGrace(code);
   cleanup(code);
 }
 

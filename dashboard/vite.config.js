@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// The Parlor portal is a static site: no WebSockets, no proxy.
-// Client builds into ../dist, which the tiny Express server serves.
+// The Parlor portal (dashboard) builds into the shared root dist/ and is
+// served at / by the unified server. Game tiles link to /<slug>.
 export default defineConfig({
   plugins: [react()],
   root: 'client',
-  build: { outDir: '../dist', emptyOutDir: true },
+  base: '/',
+  build: { outDir: '../../dist', emptyOutDir: true },
   server: { port: 5173 },
 });

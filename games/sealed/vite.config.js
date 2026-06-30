@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Dev: client on 5173, server on PORT (default 3006 for Sealed) — proxy /ws to it.
+// Built into the shared root dist/sealed and served by the unified Parlor server
+// under /sealed/. WebSocket upgrades go to /sealed/ws.
 export default defineConfig({
   plugins: [react()],
   root: 'client',
-  build: { outDir: '../dist', emptyOutDir: true },
+  base: '/sealed/',
+  build: { outDir: '../../../dist/sealed', emptyOutDir: true },
   server: {
     port: 5173,
-    proxy: { '/ws': { target: `ws://localhost:${process.env.PORT || 3006}`, ws: true } },
+    proxy: { '/sealed/ws': { target: `ws://localhost:${process.env.PORT || 3000}`, ws: true } },
   },
 });

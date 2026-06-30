@@ -30,15 +30,39 @@ const makeCode = () => {
 
 const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
+const VOTE_TIMEOUT_MS = 45000; // a silent member cannot stall the chamber past this
+
+// Arm a one-shot ballot timeout while a vote is open; clear it otherwise.
+function armTimers(code) {
+  const room = rooms.get(code);
+  if (!room) return;
+  const g = room.game;
+  if (g.phase === 'vote') {
+    if (!room.voteTimer) {
+      room.voteTimer = setTimeout(() => {
+        room.voteTimer = null;
+        if (rooms.get(code)?.game.phase === 'vote') { g.ballotTimeout(); broadcast(code); }
+      }, VOTE_TIMEOUT_MS);
+    }
+  } else if (room.voteTimer) {
+    clearTimeout(room.voteTimer);
+    room.voteTimer = null;
+  }
+}
+
 function broadcast(code) {
   const room = rooms.get(code);
   if (!room) return;
   for (const [pid, sock] of room.sockets) send(sock, { t: 'state', state: room.game.viewFor(pid) });
+  armTimers(code);
 }
 
 function cleanup(code) {
   const room = rooms.get(code);
-  if (room && !room.game.players.some((p) => p.connected)) rooms.delete(code);
+  if (room && !room.game.players.some((p) => p.connected)) {
+    if (room.voteTimer) clearTimeout(room.voteTimer);
+    rooms.delete(code);
+  }
 }
 
 wss.on('connection', (ws) => {
@@ -64,7 +88,7 @@ wss.on('connection', (ws) => {
           const code = (msg.code || '').trim().toUpperCase();
           if (!name) return send(ws, { t: 'error', message: 'Enter a name first.' });
           if (!rooms.has(code)) return send(ws, { t: 'error', message: 'No game with that code.' });
-          attach(ws, code, name);
+          attach(ws, code, name, msg.token);
           break;
         }
         case 'start':   guard(room, () => room.game.start(ws.meta.playerId)); break;
@@ -88,17 +112,23 @@ wss.on('connection', (ws) => {
   ws.on('close', () => handleLeave(ws));
 });
 
-function attach(ws, code, name) {
+function attach(ws, code, name, token) {
   const room = rooms.get(code);
-  const player = room.game.addPlayer(randomUUID(), name);
-  if (!player) {
-    return send(ws, { t: 'error', message: room.game.phase === 'lobby'
-      ? 'That name is taken or the room is full.'
-      : 'Cannot join — the game is in progress and that name is unknown.' });
+  const player = room.game.addPlayer(randomUUID(), name, token);
+  if (!player || player.error) {
+    const reason = player && player.error;
+    const message =
+      reason === 'seat-occupied' ? 'That seat is still connected — close the other tab to reclaim it.'
+      : reason === 'bad-token'   ? 'Cannot reclaim that seat (no valid token on this device).'
+      : room.game.phase === 'lobby' ? 'That name is taken or the room is full.'
+      : 'Cannot join — the game is in progress and that name is unknown.';
+    return send(ws, { t: 'error', message });
   }
   ws.meta = { code, playerId: player.id };
+  // Rebind the socket to the player's (stable) id — replaces any prior socket.
   room.sockets.set(player.id, ws);
-  send(ws, { t: 'joined', code, you: player.id });
+  // The per-seat token lets this device reclaim the seat after a drop/reload.
+  send(ws, { t: 'joined', code, you: player.id, token: player.token });
   broadcast(code);
 }
 

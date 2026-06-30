@@ -189,11 +189,31 @@ export class Game extends BaseGame {
     const me = this.byId(id);
     if (!me || !me.alive) return { error: 'Only seated Council members vote.' };
     if (vote !== 'ja' && vote !== 'nein') return { error: 'Invalid ballot.' };
+    // A ballot, once cast, is sealed — no flip-flopping until the reveal.
+    if (this.votes[id] !== undefined) return { error: 'Ballot already cast.' };
     this.votes[id] = vote;
     // Resolve once every connected living member has voted (disconnected auto-Nein).
     const pending = this.living().filter((p) => p.connected && this.votes[p.id] === undefined);
     if (pending.length === 0) this.resolveVote();
     return {};
+  }
+
+  // Server-side ballot timeout (armed by the server, mirrors the reveal timeout):
+  // every outstanding ballot is taken as a Nein and the slate is resolved so one
+  // silent member can never stall the chamber.
+  ballotTimeout() {
+    if (this.phase !== 'vote') return {};
+    this.resolveVote(); // resolveVote already counts any missing ballot as Nein
+    return {};
+  }
+
+  // A living member dropped mid-vote. Treat them as an auto-Nein and resolve the
+  // slate if no *connected* member is still pending.
+  onPlayerDisconnected(id) {
+    if (this.phase === 'vote') {
+      const pending = this.living().filter((p) => p.connected && this.votes[p.id] === undefined);
+      if (pending.length === 0) this.resolveVote();
+    }
   }
 
   resolveVote() {
