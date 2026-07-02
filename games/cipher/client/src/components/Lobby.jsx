@@ -17,7 +17,16 @@ function readiness(players) {
   return null;
 }
 
-function TeamColumn({ team, players, you, send }) {
+// Small "AI" chip shown next to bot seats.
+function AiBadge() {
+  return (
+    <span className="text-[0.5rem] uppercase tracking-wider text-brass border border-brass/40 rounded px-1 py-px leading-none">
+      AI
+    </span>
+  );
+}
+
+function TeamColumn({ team, players, you, send, isHost }) {
   const t = TEAMS[team];
   const roster = players.filter((p) => p.team === team);
   const spymaster = roster.find((p) => p.role === 'spymaster');
@@ -33,8 +42,20 @@ function TeamColumn({ team, players, you, send }) {
 
       <div className="rounded-sm border px-2 py-1.5" style={{ borderColor: `${t.hex}44`, background: `${t.hex}12` }}>
         <div className="eyebrow !text-[0.52rem] mb-0.5" style={{ color: t.bright }}>Spymaster · sees the key</div>
-        <div className="font-semibold text-sm text-parch min-h-[1.25rem]">
-          {spymaster ? `${spymaster.name}${spymaster.id === you?.id ? ' (you)' : ''}` : <span className="text-manila-faint font-normal">— empty —</span>}
+        <div className="font-semibold text-sm text-parch min-h-[1.25rem] flex items-center gap-1.5">
+          {spymaster ? (
+            <>
+              <span>{spymaster.name}{spymaster.id === you?.id ? ' (you)' : ''}</span>
+              {spymaster.isBot && <AiBadge />}
+              {spymaster.isBot && isHost && (
+                <button
+                  onClick={() => send({ t: 'removeBot', id: spymaster.id })}
+                  className="ml-auto text-manila-faint hover:text-red-400 transition"
+                  title="Remove AI player"
+                >✕</button>
+              )}
+            </>
+          ) : <span className="text-manila-faint font-normal">— empty —</span>}
         </div>
       </div>
 
@@ -45,7 +66,15 @@ function TeamColumn({ team, players, you, send }) {
           {operatives.map((p) => (
             <li key={p.id} className="text-sm text-parch flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.connected ? t.bright : '#555' }} />
-              {p.name}{p.id === you?.id && ' (you)'}
+              <span>{p.name}{p.id === you?.id && ' (you)'}</span>
+              {p.isBot && <AiBadge />}
+              {p.isBot && isHost && (
+                <button
+                  onClick={() => send({ t: 'removeBot', id: p.id })}
+                  className="ml-auto text-manila-faint hover:text-red-400 transition"
+                  title="Remove AI player"
+                >✕</button>
+              )}
             </li>
           ))}
         </ul>
@@ -61,7 +90,7 @@ function TeamColumn({ team, players, you, send }) {
         >Operative</button>
         <button
           onClick={() => send({ t: 'seat', team, role: 'spymaster' })}
-          disabled={spymaster && spymaster.id !== you?.id}
+          disabled={spymaster && spymaster.id !== you?.id && !spymaster.isBot}
           className={`btn !py-1.5 !px-2 !text-[0.6rem] border disabled:opacity-30 ${mine && you?.role === 'spymaster' ? 'text-ink-deep' : 'text-parch'}`}
           style={mine && you?.role === 'spymaster'
             ? { background: t.bright, borderColor: t.bright }
@@ -96,8 +125,8 @@ export default function Lobby({ state, code, send }) {
       </motion.div>
 
       <div className="grid grid-cols-2 gap-3 w-full max-w-md mb-3">
-        <TeamColumn team="red" players={state.players} you={you} send={send} />
-        <TeamColumn team="blue" players={state.players} you={you} send={send} />
+        <TeamColumn team="red" players={state.players} you={you} send={send} isHost={state.isHost} />
+        <TeamColumn team="blue" players={state.players} you={you} send={send} isHost={state.isHost} />
       </div>
 
       {unseated.length > 0 && (
@@ -109,6 +138,12 @@ export default function Lobby({ state, code, send }) {
       <div className="w-full max-w-md mt-auto">
         {state.isHost ? (
           <>
+            {state.players.length < (state.maxPlayers ?? 8) && (
+              <button
+                className="btn w-full border border-brass/40 text-brass !py-2 mb-2"
+                onClick={() => send({ t: 'addBot' })}
+              >+ Add AI player</button>
+            )}
             <button className="btn-brass w-full" disabled={!!blocked} onClick={() => send({ t: 'start' })}>
               {blocked ? 'Awaiting roster' : 'Begin the mission'}
             </button>

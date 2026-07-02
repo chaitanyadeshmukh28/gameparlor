@@ -60,6 +60,20 @@ export class Game extends BaseGame {
     return p;
   }
 
+  // Seat an AI player. (Overrides BaseGame.addBot, whose id generator relies on
+  // an import this variant of base-game.js doesn't carry.) Bots are ordinary
+  // player entries flagged isBot:true and are dealt in like anyone else.
+  addBot(name) {
+    if (this.phase !== 'lobby') return null;
+    if (this.players.length >= this.maxPlayers) return null;
+    if (this.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) return null;
+    const p = { id: 'bot-' + Math.random().toString(36).slice(2, 10), name, connected: true, isBot: true, tokens: 0 };
+    this.players.push(p);
+    if (!this.hostId) this.hostId = p.id;
+    this.note(`${name} joined.`);
+    return p;
+  }
+
   setup() {
     this.favorGoal = FAVOR_GOAL[this.players.length] ?? 4;
     for (const p of this.players) p.tokens = 0;
@@ -385,6 +399,92 @@ export class Game extends BaseGame {
     return { card: rank, target: t?.id, guess: 2 + Math.floor(Math.random() * 7) };
   }
 
+  // ---- AI player -----------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (the same seam an
+  // LLM could replace). Returns the next message to send (identical to a human
+  // client's {t:'play'|'next'}), or null when it owes no move right now.
+  botDecide(view, rng = Math.random) {
+    const you = view.you;
+    const me = view.players.find((p) => p.id === you);
+    if (!me) return null;
+
+    // Between rounds: only the host may deal, so a bot host advances the game.
+    if (view.phase === 'roundEnd') return view.isHost ? { t: 'next' } : null;
+
+    // Otherwise a bot only ever owes a move on its own play turn.
+    if (view.phase !== 'play' || view.turn !== you || me.eliminated) return null;
+
+    const hand = (me.hand || []).slice();
+    if (hand.length === 0) return null;
+
+    // Rivals we may legally target (alive and unshielded).
+    const others = view.players.filter((p) => p.id !== you && !p.eliminated && !p.protected);
+
+    // ---- which letter to play ----------------------------------------------
+    // The Countess (7) is forced beside the King (6) or Prince (5).
+    const forcedCountess =
+      view.mustPlayCountess || (hand.includes(7) && (hand.includes(6) || hand.includes(5)));
+    const rank = forcedCountess ? 7 : this.pickBotCard(hand, others.length > 0);
+
+    // ---- target + guess -----------------------------------------------------
+    const targets = rank === 5 ? [me, ...others] : others;
+    const needsTarget = [1, 2, 3, 5, 6].includes(rank) && targets.length > 0;
+    let target = null;
+    let guess = null;
+    if (needsTarget) {
+      if (rank === 5) {
+        // The Prince makes its target discard-and-redraw; never aim it at
+        // yourself (you'd bin the letter you kept — the Princess would end you).
+        const t = others.length ? this.pickBotTarget(others, rng) : me;
+        target = t.id;
+      } else {
+        target = this.pickBotTarget(targets, rng).id;
+      }
+      if (rank === 1) guess = this.pickBotGuess(view, rng);
+    }
+
+    return { t: 'play', card: rank, target: needsTarget ? target : null, guess: rank === 1 ? guess : null };
+  }
+
+  // Choose which of the two held letters to play. Keep the Princess (8) at all
+  // costs; otherwise play the lower letter and hold the higher — the classic
+  // Love Letter default — while never stranding a Prince you cannot aim.
+  pickBotCard(hand, hasRival) {
+    if (hand.length === 1) return hand[0];
+    const [a, b] = hand;
+    if (a === 8) return b;                 // never discard the Princess
+    if (b === 8) return a;
+    const low = Math.min(a, b);
+    const high = Math.max(a, b);
+    // A Prince with no legal rival would force a self-discard; play the other.
+    if (low === 5 && !hasRival) return high;
+    return low;
+  }
+
+  // Threaten the front-runner (most Favors); break ties at random.
+  pickBotTarget(list, rng = Math.random) {
+    const top = Math.max(...list.map((p) => p.tokens || 0));
+    const leaders = list.filter((p) => (p.tokens || 0) === top);
+    return leaders[Math.floor(rng() * leaders.length)] || list[0];
+  }
+
+  // Guard guess: name the non-Guard rank with the most copies still unseen —
+  // i.e. the letter a rival most likely holds (never the Guard itself).
+  pickBotGuess(view, rng = Math.random) {
+    const seen = {};
+    for (const p of view.players) for (const d of (p.discards || [])) seen[d] = (seen[d] || 0) + 1;
+    const me = view.players.find((p) => p.id === view.you);
+    for (const c of (me?.hand || [])) seen[c] = (seen[c] || 0) + 1;
+    let best = [], bestRem = -Infinity;
+    for (let r = 2; r <= 8; r++) {
+      const total = (view.cards?.[r]?.count) ?? CARDS[r]?.count ?? 0;
+      const rem = total - (seen[r] || 0);
+      if (rem > bestRem) { bestRem = rem; best = [r]; }
+      else if (rem === bestRem) best.push(r);
+    }
+    return best[Math.floor(rng() * best.length)] || 2;
+  }
+
   // ---- per-player view -----------------------------------------------------
   gameView(id) {
     const showdown = this.phase === 'roundEnd' || this.phase === 'over';
@@ -408,6 +508,7 @@ export class Game extends BaseGame {
           id: p.id,
           name: p.name,
           connected: p.connected,
+          isBot: !!p.isBot,
           eliminated: !!p.eliminated,
           protected: !!p.protected,
           tokens: p.tokens || 0,

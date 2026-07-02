@@ -371,6 +371,77 @@ export class Game extends BaseGame {
     }
   }
 
+  // ---- AI player ---------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (the same seam an
+  // LLM would use). Returns the next message it should send, or null when it
+  // owes no move right now. Only ever returns a legal move for the given view.
+  botDecide(view, rng = Math.random) {
+    if (!view || !view.me) return null;
+    const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+    const others = (view.players || []).filter((p) => p.id !== view.you && p.connected !== false);
+    const idByName = (name) => (view.players || []).find((p) => p.name === name)?.id ?? null;
+
+    // ---- Night: only the currently-active bot owes an action -------------
+    if (view.phase === 'night') {
+      if (!view.night?.youAreActive) return null;         // not this bot's wake — wait
+      const role = view.night.role;
+      switch (role) {
+        case 'werewolf': {
+          // A lone wolf glimpses one random center card; a pack simply continues.
+          if (view.night.context?.lone) return { t: 'night', center: Math.floor(rng() * view.centerCount) };
+          return { t: 'night' };
+        }
+        case 'seer': {
+          // Read a random player if there is one; otherwise peek two center cards.
+          if (others.length) return { t: 'night', mode: 'player', target: pick(others).id };
+          const a = Math.floor(rng() * view.centerCount);
+          const b = (a + 1) % view.centerCount;
+          return { t: 'night', mode: 'center', center: [a, b] };
+        }
+        case 'robber': {
+          if (others.length) return { t: 'night', target: pick(others).id };
+          return { t: 'night', skip: true };
+        }
+        case 'troublemaker': {
+          // Swap two OTHER players' cards; needs at least two others.
+          if (others.length >= 2) {
+            const a = pick(others);
+            const b = pick(others.filter((p) => p.id !== a.id));
+            return { t: 'night', a: a.id, b: b.id };
+          }
+          return { t: 'night', skip: true };
+        }
+        case 'insomniac':
+          return { t: 'night' };                          // always looks at its own card
+        default:
+          return { t: 'night', skip: true };
+      }
+    }
+
+    // ---- Day: ready up (once) --------------------------------------------
+    if (view.phase === 'day') {
+      if (!view.me.ready) return { t: 'ready' };
+      return null;
+    }
+
+    // ---- Vote: accuse a plausible suspect --------------------------------
+    if (view.phase === 'vote') {
+      if (view.vote?.youVoted) return null;
+      if (!others.length) return null;
+      const info = view.me.info || [];
+      // A seer who read a player as a werewolf accuses them outright.
+      const seen = info.find((x) => x.k === 'seer-player' && x.role === 'werewolf');
+      if (seen) { const id = idByName(seen.name); if (id && others.some((o) => o.id === id)) return { t: 'vote', target: id }; }
+      // A wolf avoids voting its known pack-mates.
+      const packNames = (info.find((x) => x.k === 'wolves')?.names) || [];
+      let pool = others.filter((o) => !packNames.includes(o.name));
+      if (!pool.length) pool = others;
+      return { t: 'vote', target: pick(pool).id };
+    }
+
+    return null;
+  }
+
   // ---- per-player redacted view -----------------------------------------
   gameView(id) {
     const me = this.byId(id);
@@ -385,7 +456,7 @@ export class Game extends BaseGame {
 
     // Players list — strictly redacted outside the result reveal.
     view.players = this.players.map((p) => {
-      const e = { id: p.id, name: p.name, connected: p.connected, isYou: p.id === id };
+      const e = { id: p.id, name: p.name, connected: p.connected, isBot: !!p.isBot, isYou: p.id === id };
       if (this.phase === 'day') e.ready = !!p.ready;
       if (this.phase === 'vote') e.voted = !!this.votes[p.id];
       if (this.phase === 'result' && this.result) {

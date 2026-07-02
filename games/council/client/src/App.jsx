@@ -105,7 +105,14 @@ function Lobby({ net }) {
                     fontFamily="Cinzel, serif">{p.name[0]?.toUpperCase()}</text>
                 </WaxSeal>
                 <span className="font-body text-lg">{p.name}{p.id === state.you && <span className="text-brass-dim text-sm"> · you</span>}</span>
-                {p.id === state.players[0]?.id && <span className="ml-auto eyebrow">host</span>}
+                {p.isBot && <span className="text-[0.6rem] uppercase tracking-wider text-brass-bright/85 border border-brass/40 rounded px-1.5 py-0.5">AI</span>}
+                <span className="ml-auto flex items-center gap-2">
+                  {p.id === state.players[0]?.id && <span className="eyebrow">host</span>}
+                  {p.isBot && state.isHost && (
+                    <button onClick={() => send({ t: 'removeBot', id: p.id })}
+                      className="text-parch-faint hover:text-wax transition" title="Remove AI player">✕</button>
+                  )}
+                </span>
               </motion.li>
             ))}
           </AnimatePresence>
@@ -113,6 +120,11 @@ function Lobby({ net }) {
 
         {state.isHost ? (
           <>
+            {state.players.length < state.maxPlayers && (
+              <button className="btn-ghost w-full" onClick={() => send({ t: 'addBot' })}>
+                + Add AI player
+              </button>
+            )}
             <button className="btn-brass w-full" disabled={!enough} onClick={() => send({ t: 'start' })}>
               Convene the Council
             </button>

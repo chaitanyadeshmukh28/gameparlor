@@ -43,10 +43,26 @@ export default function Lobby({ state, code, send }) {
               </span>
               <span className="font-medium text-sm">{p.name}</span>
               {p.id === state.you && <span className="text-xs text-moon-faint">(you)</span>}
-              {i === 0 && <span className="ml-auto eyebrow !text-[0.55rem]">host</span>}
+              {p.isBot && <span className="text-[0.55rem] uppercase tracking-wider text-frost/80 border border-frost/30 rounded px-1.5 py-0.5">AI</span>}
+              <span className="ml-auto flex items-center gap-2">
+                {i === 0 && <span className="eyebrow !text-[0.55rem]">host</span>}
+                {p.isBot && state.isHost && (
+                  <button
+                    onClick={() => send({ t: 'removeBot', id: p.id })}
+                    className="text-moon-faint hover:text-blood transition"
+                    title="Remove AI player"
+                  >✕</button>
+                )}
+              </span>
             </motion.li>
           ))}
         </ul>
+
+        {state.isHost && state.players.length < state.maxPlayers && (
+          <button className="btn-ghost w-full mb-4" onClick={() => send({ t: 'addBot' })}>
+            + Add AI player
+          </button>
+        )}
 
         {enough && (
           <div className="rounded-xl border border-moon/10 bg-night-abyss/40 p-3 mb-4">

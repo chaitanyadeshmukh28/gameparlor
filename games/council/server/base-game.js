@@ -58,6 +58,24 @@ export class BaseGame {
     }
   }
 
+  addBot(name) {
+    if (this.phase !== 'lobby') return null;
+    if (this.players.length >= this.maxPlayers) return null;
+    if (this.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) return null;
+    const p = { id: 'bot-' + Math.random().toString(36).slice(2, 10), name, connected: true, isBot: true, token: null };
+    this.players.push(p);
+    if (!this.hostId) this.hostId = p.id;
+    this.note(`${name} joined.`);
+    return p;
+  }
+
+  removeBot(id) {
+    const p = this.byId(id);
+    if (!p || !p.isBot || this.phase !== 'lobby') return null;
+    this.players = this.players.filter((x) => x.id !== id);
+    return p;
+  }
+
   start(id) {
     if (id !== this.hostId) return { error: 'Only the host can start the game.' };
     if (this.phase !== 'lobby') return { error: 'The game has already started.' };
@@ -93,7 +111,7 @@ export class BaseGame {
       maxPlayers: this.maxPlayers,
       log: this.log.slice(-40),
       // generic public player list; add private fields in gameView if needed
-      players: this.players.map((p) => ({ id: p.id, name: p.name, connected: p.connected })),
+      players: this.players.map((p) => ({ id: p.id, name: p.name, connected: p.connected, isBot: !!p.isBot })),
       ...(this.gameView ? this.gameView(id) : {}),
       seq: this.seq,
     };

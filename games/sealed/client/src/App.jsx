@@ -64,6 +64,7 @@ function Landing({ onCreate, onJoin, status, error }) {
 
 function Lobby({ state, code, send }) {
   const enough = state.players.length >= state.minPlayers;
+  const full = state.players.length >= state.maxPlayers;
   return (
     <div className="salon-bg relative z-0 min-h-[100dvh] grid place-items-center p-6">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md panel p-6 space-y-5">
@@ -79,7 +80,14 @@ function Lobby({ state, code, send }) {
               className="flex items-center gap-3 rounded-xl bg-plum-deep/40 border border-rose/10 px-3 py-2">
               <span className="grid place-items-center w-7 h-7 rounded-full bg-rose/15 text-blush font-display font-bold">{p.name[0]?.toUpperCase()}</span>
               <span className="text-cream">{p.name}{p.id === state.you && <span className="text-rose-faint"> (you)</span>}</span>
-              {p.id === state.players[0]?.id && <span className="ml-auto eyebrow !text-[0.5rem]">host</span>}
+              {p.isBot && <span className="text-[0.5rem] uppercase tracking-[0.15em] text-gilt/90 border border-gilt/35 rounded px-1.5 py-0.5">AI</span>}
+              <span className="ml-auto flex items-center gap-2">
+                {p.id === state.players[0]?.id && <span className="eyebrow !text-[0.5rem]">host</span>}
+                {p.isBot && state.isHost && (
+                  <button onClick={() => send({ t: 'removeBot', id: p.id })}
+                    className="text-rose-faint hover:text-wax transition text-sm leading-none" title="Dismiss this AI courtier">✕</button>
+                )}
+              </span>
             </motion.li>
           ))}
           {Array.from({ length: Math.max(0, state.minPlayers - state.players.length) }).map((_, i) => (
@@ -88,9 +96,16 @@ function Lobby({ state, code, send }) {
         </ul>
 
         {state.isHost ? (
-          <button className="btn-gilt w-full" disabled={!enough} onClick={() => send({ t: 'start' })}>
-            {enough ? 'Begin the soirée' : `Need ${state.minPlayers - state.players.length} more`}
-          </button>
+          <div className="space-y-2">
+            {!full && (
+              <button className="btn-ghost w-full" onClick={() => send({ t: 'addBot' })}>
+                + Add AI player
+              </button>
+            )}
+            <button className="btn-gilt w-full" disabled={!enough} onClick={() => send({ t: 'start' })}>
+              {enough ? 'Begin the soirée' : `Need ${state.minPlayers - state.players.length} more`}
+            </button>
+          </div>
         ) : (
           <p className="text-center text-sm text-rose-faint flex items-center justify-center gap-2">
             <SealMark className="w-3.5 h-3.5 text-gilt" /> Waiting for the host to begin…

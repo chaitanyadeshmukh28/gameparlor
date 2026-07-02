@@ -33,6 +33,84 @@ const randCode = () => shuffle([1, 2, 3, 4]).slice(0, 3);
 const eqCode = (a, b) =>
   Array.isArray(a) && Array.isArray(b) && a.length === 3 && a.every((v, i) => v === b[i]);
 
+// ---- bot clue language (PLAIN CODE) --------------------------------------
+// A deterministic keyword→clue map is the seam a future LLM can replace. For
+// now it is a tiny built-in association table with a first-letters fallback,
+// so a keyword always yields the SAME clue — which lets a teammate bot invert
+// it back to a slot. Clues stay short/lowercase (legal per the engine's rules).
+const CLUE_ASSOC = {
+  ANCHOR: 'ship', LANTERN: 'lamp', COMPASS: 'north', HARBOR: 'port', BEACON: 'signal',
+  CONVOY: 'fleet', ENGINE: 'motor', PROPELLER: 'blade', PERISCOPE: 'scope', TORPEDO: 'missile',
+  BUNKER: 'shelter', TRENCH: 'ditch', RATION: 'food', CANTEEN: 'flask', HELMET: 'headgear',
+  BOOT: 'footwear', WIRE: 'cable', STATIC: 'noise', CIPHER: 'code', MORSE: 'dots',
+  DYNAMO: 'power', VALVE: 'flow', PISTON: 'cylinder', GEARBOX: 'gears', RUDDER: 'steer',
+  KEEL: 'hull', MAST: 'pole', SAIL: 'canvas', TIDE: 'ocean', CURRENT: 'flow',
+  REEF: 'coral', LAGOON: 'pool', MOUNTAIN: 'peak', VALLEY: 'dale', GLACIER: 'ice',
+  CANYON: 'gorge', DESERT: 'sand', MEADOW: 'field', FOREST: 'woods', SWAMP: 'marsh',
+  THUNDER: 'storm', BLIZZARD: 'snow', CYCLONE: 'wind', DRIZZLE: 'rain', EMBER: 'coal',
+  CINDER: 'ash', FROST: 'chill', AURORA: 'lights', MARKET: 'bazaar', FACTORY: 'plant',
+  FOUNDRY: 'forge', WAREHOUSE: 'depot', STATION: 'depot2', PLATFORM: 'stage', TUNNEL: 'passage',
+  BRIDGE: 'span', LADDER: 'rungs', HINGE: 'joint', LATCH: 'catch', ANVIL: 'iron',
+  HAMMER: 'mallet', CHISEL: 'carve', WRENCH: 'spanner', PLIERS: 'grip', COPPER: 'metal',
+  NICKEL: 'coin', COBALT: 'blue', GRANITE: 'stone', MARBLE: 'slab', AMBER: 'resin',
+  QUARTZ: 'crystal', PEARL: 'gem', WHISTLE: 'toot', DRUM: 'beat', TRUMPET: 'brass',
+  VIOLIN: 'strings', ORGAN: 'pipes', CHIME: 'ring', GONG: 'clang', HARP: 'pluck',
+  FALCON: 'hawk', OTTER: 'river', BADGER: 'burrow', STALLION: 'horse', WALRUS: 'tusks',
+  PANTHER: 'cat', HORNET: 'sting', MAGPIE: 'bird', ORCHARD: 'apples', VINEYARD: 'grapes',
+  PASTURE: 'graze', GRANARY: 'grain', WINDMILL: 'sails', SCARECROW: 'straw', HARVEST: 'reap',
+  PLOW: 'furrow', KETTLE: 'boil', SKILLET: 'pan', CELLAR: 'basement', PANTRY: 'larder',
+  CANDLE: 'wick', MATCHBOX: 'strike', TEAPOT: 'brew', GOBLET: 'cup', PARCEL: 'package',
+  STAMP: 'postage', LEDGER: 'accounts', INKWELL: 'ink', QUILL: 'feather', SATCHEL: 'bag',
+  LOCKET: 'pendant', TELEGRAM: 'wire2', COMET: 'tail', METEOR: 'shooting', CRATER: 'hole',
+  NEBULA: 'cloud', ORBIT: 'circle', ECLIPSE: 'shadow', GALAXY: 'stars', PULSAR: 'spin',
+  CASTLE: 'fort', TURRET: 'tower', MOAT: 'water', DUNGEON: 'cell', RAMPART: 'wall',
+  GARRISON: 'troops', CITADEL: 'stronghold', BARRACKS: 'quarters',
+};
+// Pure, deterministic clue for a keyword (no rng → invertible by a teammate).
+function clueFor(word) {
+  const w = String(word || '').toUpperCase();
+  return CLUE_ASSOC[w] || w.toLowerCase().slice(0, 4) || 'signal';
+}
+// Best-effort decode of your OWN watch: match each public clue back to the
+// keyword slot that would have produced it. Always returns 3 distinct slots.
+function decodeGuess(team) {
+  const kw = team.keywords || [];
+  const clues = team.clues || [];
+  const used = new Set();
+  const guess = [];
+  for (const clue of clues) {
+    let slot = null;
+    for (let s = 1; s <= 4; s++) {
+      if (!used.has(s) && clueFor(kw[s - 1]) === clue) { slot = s; break; }
+    }
+    if (slot == null) for (let s = 1; s <= 4; s++) if (!used.has(s)) { slot = s; break; }
+    used.add(slot);
+    guess.push(slot);
+  }
+  return guess;
+}
+// Heuristic interception of the ENEMY watch (keywords unknown): match a clue to
+// a slot whose PUBLIC history board once carried it, else guess a free slot.
+function interceptGuess(team, rng) {
+  const clues = team.clues || [];
+  const board = team.board || [[], [], [], []];
+  const used = new Set();
+  const guess = [];
+  for (const clue of clues) {
+    let slot = null;
+    for (let s = 1; s <= 4; s++) {
+      if (!used.has(s) && (board[s - 1] || []).some((e) => e.clue === clue)) { slot = s; break; }
+    }
+    if (slot == null) {
+      const free = [1, 2, 3, 4].filter((s) => !used.has(s));
+      slot = free[Math.floor(rng() * free.length)];
+    }
+    used.add(slot);
+    guess.push(slot);
+  }
+  return guess;
+}
+
 export class Game extends BaseGame {
   constructor(code) {
     super(code);
@@ -66,6 +144,23 @@ export class Game extends BaseGame {
       const b = this.membersOf('B').length;
       p.team = a <= b ? 'A' : 'B';
     }
+    return p;
+  }
+
+  // Bots are added by the shared plumbing ({t:'addBot'}). We implement the seat
+  // here (rather than BaseGame.addBot) so we can balance the bot onto a watch,
+  // mirroring addPlayer's team assignment.
+  addBot(name) {
+    if (this.phase !== 'lobby') return null;
+    if (this.players.length >= this.maxPlayers) return null;
+    if (this.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) return null;
+    const p = { id: 'bot-' + Math.random().toString(36).slice(2, 10), name, connected: true, isBot: true };
+    const a = this.membersOf('A').length;
+    const b = this.membersOf('B').length;
+    p.team = a <= b ? 'A' : 'B';
+    this.players.push(p);
+    if (!this.hostId) this.hostId = p.id;
+    this.note(`${name} joined.`);
     return p;
   }
 
@@ -267,6 +362,46 @@ export class Game extends BaseGame {
     }
   }
 
+  // ---- AI player ---------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (the same seam an
+  // LLM would use to replace the clue language). Returns the next legal message
+  // for this bot, or null when it owes nothing right now.
+  botDecide(view, rng = Math.random) {
+    const myTeam = view.yourTeam;
+    if (!myTeam || !view.teams) return null;
+    const mine = view.teams[myTeam];
+    const enemy = view.teams[myTeam === 'A' ? 'B' : 'A'];
+
+    // Reveal: acknowledge and advance to the next transmission.
+    if (view.phase === 'reveal') return { t: 'continue' };
+
+    // Transmission: if I'm the Encryptor and haven't sent, turn code → clues.
+    if (view.phase === 'encrypt') {
+      if (view.yourRole === 'encryptor' && mine && !mine.cluesIn) {
+        const code = view.yourCode || [];
+        const kw = mine.keywords || [];
+        if (code.length === 3 && kw.length === 4) {
+          return { t: 'clues', clues: code.map((slot) => clueFor(kw[slot - 1])) };
+        }
+      }
+      return null;
+    }
+
+    // Decode / intercept: read my own code, then try to crack the enemy's.
+    if (view.phase === 'guess') {
+      const g = view.yourGuesses || {};
+      if (view.canDecode && !g.decode && mine) {
+        return { t: 'guess', kind: 'decode', guess: decodeGuess(mine) };
+      }
+      if (view.canIntercept && !g.intercept && enemy) {
+        return { t: 'guess', kind: 'intercept', guess: interceptGuess(enemy, rng) };
+      }
+      return null;
+    }
+
+    return null;
+  }
+
   // ---- per-player view ---------------------------------------------------
   gameView(id) {
     const me = this.byId(id);
@@ -293,7 +428,8 @@ export class Game extends BaseGame {
         // the duel is over so everyone finally sees the enemy's words.
         keywords: (isMine || over) ? td.keywords : null,
         players: this.membersOf(t).map((p) => ({
-          id: p.id, name: p.name, connected: p.connected, isEncryptor: this.encryptorByTeam[t] === p.id,
+          id: p.id, name: p.name, connected: p.connected, isBot: !!p.isBot,
+          isEncryptor: this.encryptorByTeam[t] === p.id,
         })),
       };
     }

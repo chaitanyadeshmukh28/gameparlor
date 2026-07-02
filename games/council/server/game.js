@@ -453,6 +453,155 @@ export class Game extends BaseGame {
     return { ended: true };
   }
 
+  // ---- AI player -----------------------------------------------------------
+  // Heuristic, faction-aware bot. Decides purely from its own redacted view
+  // (the same seam an LLM would use), respecting hidden info: a liberal only
+  // ever knows what viewFor gives it (own role + any inspections it performed),
+  // while fascists see the whole fascist bench (incl. Hitler at 5–6p). Returns
+  // the next legal message to send, or null when it owes no move right now.
+  botDecide(view, rng = Math.random) {
+    if (!view || view.phase === 'over' || view.phase === 'lobby') return null;
+    const meId = view.you;
+    const me = (view.players || []).find((p) => p.id === meId);
+    if (!me) return null;
+    const badTeam = view.youTeam === 'bad'; // fascist or Hitler
+    const fascCount = view.tracks ? view.tracks.fascist : 0;
+
+    const others = (view.players || []).filter((p) => p.id !== meId && p.alive);
+    // Who this bot has learned is bad/good — visible teammates + own inspections.
+    const intelBad = new Set((view.privateIntel || []).filter((x) => x.team === 'bad').map((x) => x.targetId));
+    const intelGood = new Set((view.privateIntel || []).filter((x) => x.team === 'good').map((x) => x.targetId));
+    const knownBad = (p) => p.team === 'bad' || p.role === 'fascist' || p.role === 'hitler' || intelBad.has(p.id);
+    const knownGood = (p) => p.team === 'good' || p.role === 'liberal' || intelGood.has(p.id);
+    const pick = (arr) => (arr.length ? arr[Math.floor(rng() * arr.length)] : null);
+
+    // ---- Nomination: only the President owes a move. -----------------------
+    if (view.phase === 'nominate') {
+      if (meId !== view.chairId) return null;
+      const elig = (view.eligibleDeputies || []).map((did) => this.byId(did)).filter(Boolean);
+      if (!elig.length) return null;
+      let choice;
+      if (badTeam) {
+        // Late game: try to install Hitler as Chancellor for the instant win.
+        if (fascCount >= 3) choice = elig.find((p) => p.role === 'hitler');
+        // Otherwise prefer a fellow fascist to push the Fascist agenda.
+        if (!choice) choice = pick(elig.filter((p) => knownBad(p)));
+        // Fall back to a plausible-looking liberal to blend in.
+        if (!choice) choice = pick(elig);
+      } else {
+        // Liberals nominate someone they trust; never a confirmed fascist.
+        choice = pick(elig.filter((p) => knownGood(p)))
+          || pick(elig.filter((p) => !knownBad(p)))
+          || pick(elig);
+      }
+      return { t: 'nominate', deputyId: choice.id };
+    }
+
+    // ---- Voting: every living, un-voted member casts a ballot. -------------
+    if (view.phase === 'vote') {
+      if (!me.alive || view.yourVote) return null;
+      const nominee = (view.players || []).find((p) => p.id === view.nominee);
+      const chair = (view.players || []).find((p) => p.id === view.chairId);
+      let ja;
+      if (badTeam) {
+        // Winning slate (Hitler as Chancellor, 3+ fascist policies) → always Ja.
+        if (fascCount >= 3 && nominee && nominee.role === 'hitler') ja = true;
+        // Back any government containing a fascist teammate.
+        else if ((nominee && knownBad(nominee)) || (chair && knownBad(chair))) ja = true;
+        // Otherwise vote unpredictably to avoid looking like a bloc.
+        else ja = rng() < 0.55;
+      } else {
+        // Liberals reject a known fascist Chancellor outright.
+        if (nominee && knownBad(nominee)) ja = false;
+        // Grow cautious once the Fascist track is dangerous (possible Hitler win).
+        else if (fascCount >= 3 && nominee && !knownGood(nominee)) ja = rng() < 0.5;
+        else ja = rng() < 0.85;
+      }
+      return { t: 'vote', vote: ja ? 'ja' : 'nein' };
+    }
+
+    // ---- Ballot reveal: any living member can advance the table. -----------
+    if (view.phase === 'voteReveal') {
+      if (!me.alive) return null;
+      return { t: 'ackReveal' };
+    }
+
+    // ---- Legislative (President drafts 3 → discards 1). --------------------
+    if (view.phase === 'legislativeChair') {
+      if (meId !== view.chairId || !view.draw3) return null;
+      const hand = view.draw3;
+      // Liberals bin a Fascist card; fascists bin a Liberal card (to leave the
+      // Chancellor a Fascist to enact). Fall back to the first card.
+      const wantGone = badTeam ? 'liberal' : 'fascist';
+      let idx = hand.indexOf(wantGone);
+      if (idx === -1) idx = 0;
+      return { t: 'discard', index: idx };
+    }
+
+    // ---- Legislative (Chancellor enacts 1 of 2; veto handling). -----------
+    if (view.phase === 'legislativeDeputy') {
+      // President answering a proposed veto. Always consent — this cleanly ends
+      // the round (a failed election) and can never loop.
+      if (view.vetoProposed) {
+        if (meId !== view.chairId) return null;
+        return { t: 'answerVeto', agree: true };
+      }
+      if (meId !== view.nominee || !view.deputy2) return null;
+      const hand = view.deputy2;
+      // A Liberal Chancellor forced to enact two Fascist policies moves to veto
+      // (only once — the President always consents, so no re-proposal loop).
+      if (!badTeam && view.canVeto && hand.every((p) => p === 'fascist')) {
+        return { t: 'proposeVeto' };
+      }
+      const want = badTeam ? 'fascist' : 'liberal';
+      let idx = hand.indexOf(want);
+      if (idx === -1) idx = 0;
+      return { t: 'enact', index: idx };
+    }
+
+    // ---- Executive power: only the wielding President owes a move. ---------
+    if (view.phase === 'power' && view.power) {
+      const pw = view.power;
+      if (meId !== pw.chairId) return null;
+      if (pw.type === 'survey') return { t: 'ackPower' };
+      if (pw.type === 'inspect') {
+        if (pw.result) return { t: 'ackPower' }; // already inspected → continue
+        // Inspect an un-inspected member; liberals probe the unknown, fascists
+        // probe a liberal (result is private either way).
+        const seen = new Set((view.privateIntel || []).map((x) => x.targetId));
+        const pool = others.filter((p) => !seen.has(p.id));
+        let target = badTeam
+          ? pick(pool.filter((p) => !knownBad(p)))
+          : pick(pool.filter((p) => !knownGood(p) && !knownBad(p)));
+        target = target || pick(pool) || pick(others);
+        return target ? { t: 'power', targetId: target.id } : { t: 'ackPower' };
+      }
+      if (pw.type === 'appoint') {
+        // Fascists hand the presidency to a teammate; liberals to someone trusted.
+        let target = badTeam
+          ? (pick(others.filter((p) => knownBad(p))) || pick(others))
+          : (pick(others.filter((p) => knownGood(p))) || pick(others.filter((p) => !knownBad(p))) || pick(others));
+        return target ? { t: 'power', targetId: target.id } : null;
+      }
+      if (pw.type === 'execute') {
+        let target;
+        if (badTeam) {
+          // Never shoot a teammate or Hitler; a role we can't see is a Liberal.
+          target = pick(others.filter((p) => !knownBad(p))) || pick(others);
+        } else {
+          // Prefer a confirmed fascist, else a suspicious unknown.
+          target = pick(others.filter((p) => knownBad(p)))
+            || pick(others.filter((p) => !knownGood(p)))
+            || pick(others);
+        }
+        return target ? { t: 'power', targetId: target.id } : null;
+      }
+      return { t: 'ackPower' };
+    }
+
+    return null;
+  }
+
   // ---- per-player view -----------------------------------------------------
   gameView(id) {
     // Before setup() runs, the generic lobby view is all that's needed.

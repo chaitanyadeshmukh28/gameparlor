@@ -67,6 +67,24 @@ export class CoupGame {
     }
   }
 
+  addBot(name) {
+    if (this.phase !== 'lobby') return null;
+    if (this.players.length >= 6) return null;
+    if (this.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) return null;
+    const p = { id: 'bot-' + Math.random().toString(36).slice(2, 10), name, coins: 0, influence: [], connected: true, eliminated: false, isBot: true };
+    this.players.push(p);
+    if (!this.hostId) this.hostId = p.id;
+    this.note(`${name} joined the table.`);
+    return p;
+  }
+
+  removeBot(id) {
+    const p = this.byId(id);
+    if (!p || !p.isBot || this.phase !== 'lobby') return null;
+    this.players = this.players.filter((x) => x.id !== id);
+    return p;
+  }
+
   start(id) {
     if (id !== this.hostId) return { error: 'Only the host can start the game.' };
     if (this.phase !== 'lobby') return { error: 'The game has already started.' };
@@ -412,6 +430,64 @@ export class CoupGame {
     return {};
   }
 
+  // Unified message dispatch (the server routes all in-game actions here).
+  handleMessage(id, msg) {
+    switch (msg.t) {
+      case 'action':   return this.declare(id, msg.action, msg.target);
+      case 'respond':  return this.respond(id, msg.kind, msg.blockChar);
+      case 'lose':     return this.loseInfluence(id, msg.cardIndex);
+      case 'exchange': return this.finishExchange(id, msg.keep);
+      default:         return { error: 'Unknown action.' };
+    }
+  }
+
+  // ---- AI player -----------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (the same seam an
+  // LLM would use). Returns the next message to play, or null if it owes none.
+  botDecide(view, rng = Math.random) {
+    const me = view.players.find((p) => p.id === view.you);
+    if (!me) return null;
+    const opps = view.players.filter((p) => p.id !== view.you && !p.eliminated && p.influenceCount > 0);
+    const weakest = () => [...opps].sort((a, b) => a.influenceCount - b.influenceCount || b.coins - a.coins)[0];
+    const richest = () => [...opps].sort((a, b) => b.coins - a.coins)[0];
+
+    // Your turn: choose an action.
+    if (view.phase === 'turn' && view.turn === view.you) {
+      if (!opps.length) return null;
+      const r = rng();
+      if (me.coins >= 10) return { t: 'action', action: 'coup', target: weakest().id };
+      if (me.coins >= 7 && r < 0.65) return { t: 'action', action: 'coup', target: weakest().id };
+      if (me.coins >= 3 && r < 0.30) return { t: 'action', action: 'assassinate', target: weakest().id };
+      if (r < 0.55) return { t: 'action', action: 'tax' };
+      const target = richest();
+      if (r < 0.75 && target && target.coins > 0) return { t: 'action', action: 'steal', target: target.id };
+      return { t: 'action', action: 'income' };
+    }
+
+    // Someone acted: block if it hits you, occasionally challenge, else pass.
+    if (view.phase === 'response' && view.pending) {
+      const pd = view.pending;
+      if (!(pd.responders || []).includes(view.you)) return null;
+      if (pd.canBlock && pd.target === view.you && (pd.blockChars || []).length)
+        return { t: 'respond', kind: 'block', blockChar: pd.blockChars[0] };
+      if (pd.canChallenge && rng() < 0.15) return { t: 'respond', kind: 'challenge' };
+      return { t: 'respond', kind: 'pass' };
+    }
+
+    // Forced to lose influence: drop your first living card.
+    if (view.pendingLoss && view.pendingLoss.playerId === view.you) {
+      const idx = me.cards.findIndex((c) => !c.revealed);
+      if (idx !== -1) return { t: 'lose', cardIndex: idx };
+    }
+
+    // Ambassador exchange: keep the required count (as card indexes).
+    if (view.exchange && view.exchange.cards) {
+      return { t: 'exchange', keep: Array.from({ length: view.exchange.keep }, (_, i) => i) };
+    }
+
+    return null;
+  }
+
   // ---- per-player view -----------------------------------------------------
   viewFor(id) {
     this.seq++;
@@ -428,6 +504,7 @@ export class CoupGame {
       players: this.players.map((p) => ({
         id: p.id,
         name: p.name,
+        isBot: !!p.isBot,
         coins: p.coins,
         connected: p.connected,
         eliminated: p.eliminated,

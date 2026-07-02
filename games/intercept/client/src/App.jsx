@@ -113,8 +113,15 @@ function Lobby({ state, code, you, send, error }) {
               <Label className="mt-0.5">{team.players.length} operator{team.players.length === 1 ? '' : 's'}</Label>
               <ul className="mt-2 space-y-1 min-h-[44px]">
                 {team.players.map((p) => (
-                  <li key={p.id} className={`font-mono text-sm ${p.id === you ? c.text : 'text-white/70'}`}>
-                    {p.id === you ? '▸ ' : '· '}{p.name}{p.id === you ? ' (you)' : ''}
+                  <li key={p.id} className={`flex items-center gap-1.5 font-mono text-sm ${p.id === you ? c.text : 'text-white/70'}`}>
+                    <span className="truncate">{p.id === you ? '▸ ' : '· '}{p.name}{p.id === you ? ' (you)' : ''}</span>
+                    {p.isBot && <span className={`shrink-0 font-mono text-[9px] uppercase tracking-widest border rounded-sm px-1 py-0.5 ${c.border} ${c.text}`}>AI</span>}
+                    {p.isBot && state.isHost && (
+                      <span role="button" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); send({ t: 'removeBot', id: p.id }); }}
+                        title="Remove AI player"
+                        className="shrink-0 ml-auto cursor-pointer text-white/40 hover:text-alert transition">✕</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -129,10 +136,18 @@ function Lobby({ state, code, you, send, error }) {
       <div className="mt-auto w-full">
         {error && <p className="font-mono text-xs text-alert text-center mb-2">{error.message}</p>}
         {state.isHost
-          ? <button onClick={() => send({ t: 'start' })}
-              className="w-full rounded-sm bg-phosphor text-void font-mono font-bold uppercase tracking-widest py-3 shadow-glow hover:bg-phosphor-bright transition">
-              Begin Transmission
-            </button>
+          ? <div className="space-y-2">
+              {state.players.length < state.maxPlayers && (
+                <button onClick={() => send({ t: 'addBot' })}
+                  className="w-full rounded-sm border border-phosphor/30 text-phosphor/80 font-mono text-xs uppercase tracking-widest py-2.5 hover:bg-phosphor/10 hover:text-phosphor transition">
+                  + Add AI player
+                </button>
+              )}
+              <button onClick={() => send({ t: 'start' })}
+                className="w-full rounded-sm bg-phosphor text-void font-mono font-bold uppercase tracking-widest py-3 shadow-glow hover:bg-phosphor-bright transition">
+                Begin Transmission
+              </button>
+            </div>
           : <p className="font-mono text-sm text-phosphor/50 text-center py-3">Awaiting host to begin…</p>}
         <p className="font-mono text-[10px] text-phosphor/35 text-center mt-2">4–8 players · two watches</p>
       </div>

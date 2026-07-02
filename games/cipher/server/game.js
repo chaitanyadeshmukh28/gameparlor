@@ -50,6 +50,30 @@ export class Game extends BaseGame {
     return p;
   }
 
+  // Bots have no socket, so they cannot seat themselves. Add + seat each one the
+  // moment it is created: balance the two teams, and claim the spymaster chair
+  // only if that team still lacks one (humans can reclaim it — see seat()).
+  // (Implemented in full rather than via super.addBot so seating is atomic.)
+  addBot(name) {
+    if (this.phase !== 'lobby') return null;
+    if (this.players.length >= this.maxPlayers) return null;
+    if (this.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) return null;
+    const p = {
+      id: 'bot-' + Math.random().toString(36).slice(2, 10),
+      name, connected: true, isBot: true, team: null, role: 'operative',
+    };
+    this.players.push(p);
+    if (!this.hostId) this.hostId = p.id;
+    this.note(`${name} joined.`);
+    const red = this.players.filter((x) => x.team === 'red');
+    const blue = this.players.filter((x) => x.team === 'blue');
+    const team = red.length <= blue.length ? 'red' : 'blue';
+    const roster = team === 'red' ? red : blue;
+    p.team = team;
+    p.role = roster.some((x) => x.role === 'spymaster') ? 'operative' : 'spymaster';
+    return p;
+  }
+
   handleMessage(playerId, msg) {
     switch (msg.t) {
       case 'seat':  return this.seat(playerId, msg.team ?? null, msg.role ?? 'operative');
@@ -68,10 +92,34 @@ export class Game extends BaseGame {
     if (!['operative', 'spymaster'].includes(role)) return { error: 'Pick a role.' };
     p.team = team;
     p.role = role;
+    // Claiming the spymaster chair evicts a bot that was holding it, so a human
+    // is never blocked from a seat only an AI occupies.
+    if (role === 'spymaster' && team) {
+      for (const x of this.players)
+        if (x !== p && x.isBot && x.team === team && x.role === 'spymaster') x.role = 'operative';
+    }
     return {};
   }
 
+  // Safety net before a mission starts: make sure every seated team has exactly
+  // one spymaster by promoting/demoting bots (humans keep their picks).
+  seatBotsForStart() {
+    for (const team of TEAMS) {
+      const roster = this.players.filter((p) => p.team === team);
+      if (!roster.length) continue;
+      const spies = roster.filter((p) => p.role === 'spymaster');
+      if (spies.length === 0) {
+        const cand = roster.find((p) => p.isBot);
+        if (cand) cand.role = 'spymaster';
+      } else if (spies.length > 1) {
+        const keep = spies.find((p) => !p.isBot) || spies[0];
+        for (const s of spies) if (s !== keep && s.isBot) s.role = 'operative';
+      }
+    }
+  }
+
   setup() {
+    this.seatBotsForStart();
     const red = this.players.filter((p) => p.team === 'red');
     const blue = this.players.filter((p) => p.team === 'blue');
     if (this.players.some((p) => !p.team))
@@ -248,6 +296,7 @@ export class Game extends BaseGame {
       players: this.players.map((p) => ({
         id: p.id, name: p.name, connected: p.connected,
         team: p.team ?? null, role: p.role ?? 'operative',
+        isBot: !!p.isBot,
       })),
       board: this.board.map((t, i) => ({
         i,
@@ -281,6 +330,111 @@ export class Game extends BaseGame {
       })),
     };
   }
+
+  // ---- AI opponents --------------------------------------------------------
+  // Return the next legal message this bot should send (same shape a human
+  // client sends into handleMessage), or null when it owes no move. `view` is
+  // exactly this.viewFor(botId) — the bot's redacted view: a spymaster bot sees
+  // the full key (board tile types), an operative bot only sees revealed tiles.
+  //
+  // We use PLAIN CODE (no LLM) for now, so the bot cannot truly associate words.
+  // It therefore plays SAFELY and legally: as spymaster it clues exactly one of
+  // its own hidden agents with the number 1 (a clue word that is provably not on
+  // the board and shares no substring with any board word, so the engine's own
+  // validation always accepts it); as operative it uncovers one still-hidden
+  // tile then stands down. The botDecide(view) seam is preserved so an LLM can
+  // later supply real clues/guesses without changing the plumbing.
+  botDecide(view, rng = Math.random) {
+    if (view.phase !== 'play') return null;      // only acts during a live mission
+    const me = view.me;
+    if (!me || !me.team) return null;
+    if (view.turn !== me.team) return null;       // not this team's turn
+
+    if (view.turnRole === 'clue') {
+      if (!me.isSpymaster) return null;           // wait for the spymaster
+      return this.botClue(view, rng);
+    }
+    if (view.turnRole === 'guess') {
+      if (me.isSpymaster) return null;            // spymasters cannot touch tiles
+      return this.botGuess(view, rng);
+    }
+    return null;
+  }
+
+  botClue(view, rng) {
+    // Spymaster view carries the key: our own still-hidden agents have type===team.
+    const mine = view.board.filter((t) => !t.revealed && t.type === view.me.team);
+    if (!mine.length) return null;
+    const target = mine[Math.floor(rng() * mine.length)];
+    const hidden = view.board.filter((t) => !t.revealed).map((t) => t.word.toUpperCase());
+    const word = pickClueWord(target.word, hidden);
+    if (!word) return null;
+    // count 1 == exactly one intended agent; always within 1..remaining.
+    return { t: 'clue', word, count: 1 };
+  }
+
+  botGuess(view, rng) {
+    const clue = view.clue;
+    if (!clue) return null;
+    // Stop once we have made our allotted (safe) number of guesses — but the
+    // engine requires at least one guess before stopping is legal.
+    if (clue.guessesMade >= Math.max(1, clue.count)) return { t: 'stop' };
+    const hidden = view.board.filter((t) => !t.revealed);
+    if (!hidden.length) return null;
+    // No key visible to an operative, so every hidden tile is equally unknown:
+    // pick one at random. (An LLM would score tiles against the clue here.)
+    const pick = hidden[Math.floor(rng() * hidden.length)];
+    return { t: 'guess', index: pick.i };
+  }
 }
 
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+// A tiny built-in association map (board word -> a thematically related clue).
+// Purely cosmetic: every candidate is still run through isCleanClue below, and
+// unsafe ones fall through to the themed fillers / guaranteed-unique fallback.
+const CLUE_MAP = {
+  APPLE: 'FRUIT', BANANA: 'FRUIT', LEMON: 'FRUIT', PUMPKIN: 'HARVEST',
+  EAGLE: 'BIRD', FALCON: 'BIRD', RAVEN: 'BIRD', ROBIN: 'BIRD', HAWK: 'BIRD',
+  CONDOR: 'BIRD', HERON: 'BIRD', PIGEON: 'BIRD', OWL: 'BIRD',
+  DOLPHIN: 'OCEAN', LOBSTER: 'OCEAN', OYSTER: 'OCEAN', CORAL: 'OCEAN', REEF: 'OCEAN',
+  DRAGON: 'MYTH', UNICORN: 'MYTH', PHANTOM: 'MYTH', WIZARD: 'MAGIC', POTION: 'MAGIC',
+  CASTLE: 'ROYAL', PALACE: 'ROYAL', CROWN: 'ROYAL', THRONE: 'ROYAL', MONARCH: 'ROYAL',
+  ROCKET: 'SPACE', GALAXY: 'SPACE', METEOR: 'SPACE', COMET: 'SPACE', ZODIAC: 'SPACE',
+  DIAMOND: 'GEM', CRYSTAL: 'GEM', GARNET: 'GEM', QUARTZ: 'GEM', PRISM: 'GEM',
+  CAMEL: 'DESERT', CACTUS: 'DESERT', OASIS: 'DESERT', DAGGER: 'BLADE', TRIDENT: 'WEAPON',
+  GUITAR: 'MUSIC', TRUMPET: 'MUSIC', FIDDLE: 'MUSIC', DRUMMER: 'MUSIC',
+  VOLCANO: 'ERUPT', GLACIER: 'FROZEN', FROST: 'FROZEN', TUNDRA: 'FROZEN',
+  ANCHOR: 'NAUTICAL', HARBOR: 'NAUTICAL', VESSEL: 'NAUTICAL', RUDDER: 'NAUTICAL',
+};
+
+// Themed spy-flavored fillers — none of these appear in the word pool. Tried in
+// order after the association map; the first one that passes validation wins.
+const CLUE_FILLERS = [
+  'MISSION', 'DECODE', 'ENCRYPT', 'INTEL', 'DOSSIER', 'AGENCY', 'HANDLER',
+  'PROTOCOL', 'TRANSMIT', 'FREQUENCY', 'ENIGMA', 'SLEEPER', 'STAKEOUT',
+  'BRIEFING', 'COVERT', 'CLEARANCE', 'INFILTRATE', 'SURVEILLANCE',
+];
+
+// A clue is legal for this engine iff it is a single alphabetic token (with an
+// optional single hyphen/apostrophe), <=20 chars, and not equal to any hidden
+// board word. We additionally forbid substring/superstring overlap with any
+// board word so the bot's clue is never a giveaway or an accidental match.
+function isCleanClue(word, hiddenBoardWords) {
+  if (!/^[a-zA-Z]+(?:[-'][a-zA-Z]+)?$/.test(word)) return false;
+  if (word.length > 20) return false;
+  const up = word.toUpperCase();
+  for (const bw of hiddenBoardWords) {
+    if (bw === up || bw.includes(up) || up.includes(bw)) return false;
+  }
+  return true;
+}
+
+function pickClueWord(targetWord, hiddenBoardWords) {
+  const candidates = [CLUE_MAP[targetWord.toUpperCase()], ...CLUE_FILLERS];
+  for (const c of candidates) if (c && isCleanClue(c, hiddenBoardWords)) return c;
+  // Guaranteed-unique fallback: a token that cannot collide with any board word.
+  let w = 'CIPHERX';
+  while (!isCleanClue(w, hiddenBoardWords)) w += 'X';
+  return w;
+}

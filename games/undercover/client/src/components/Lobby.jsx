@@ -40,9 +40,20 @@ export default function Lobby({ state, code, send, error }) {
               <Mug name={p.name} size="sm" />
               <span className="font-cond font-medium text-bone">{p.name}</span>
               {p.id === state.you && <span className="text-xs text-bone-faint">(you)</span>}
-              {p.id === state.players[0]?.id && (
-                <span className="ml-auto eyebrow !text-amber/80">Host</span>
+              {p.isBot && (
+                <span className="font-mono text-[0.55rem] uppercase tracking-[0.18em] text-amber/80 border border-amber/30 rounded-[2px] px-1.5 py-0.5">AI</span>
               )}
+              <span className="ml-auto flex items-center gap-2">
+                {p.id === state.players[0]?.id && <span className="eyebrow !text-amber/80">Host</span>}
+                {p.isBot && state.isHost && (
+                  <button
+                    onClick={() => send({ t: 'removeBot', id: p.id })}
+                    className="grid place-items-center w-6 h-6 rounded-full border border-bone/20 text-bone-faint hover:text-amber hover:border-amber/50 transition"
+                    title="Remove AI player"
+                    aria-label={`Remove ${p.name}`}
+                  >✕</button>
+                )}
+              </span>
             </motion.li>
           ))}
         </ul>
@@ -63,6 +74,11 @@ export default function Lobby({ state, code, send, error }) {
                 </button>
               ))}
             </div>
+            {!full && (
+              <button className="btn-ghost w-full mb-2" onClick={() => send({ t: 'addBot' })}>
+                + Add AI player
+              </button>
+            )}
             <button className="btn-amber w-full" disabled={!enough} onClick={() => send({ t: 'start' })}>
               {enough ? 'Begin the interrogation' : `Need ${state.minPlayers - state.players.length} more`}
             </button>

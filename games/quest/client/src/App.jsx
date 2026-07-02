@@ -69,6 +69,7 @@ function Landing({ onCreate, onJoin, status, error }) {
 /* ───────────────────────── Lobby ───────────────────────── */
 function Lobby({ state, code, send }) {
   const enough = state.players.length >= state.minPlayers;
+  const full = state.players.length >= state.maxPlayers;
   return (
     <div className="min-h-[100dvh] grid place-items-center p-6">
       <div className="w-full max-w-md text-center">
@@ -85,18 +86,31 @@ function Lobby({ state, code, send }) {
                   className="flex items-center gap-3 rounded-lg bg-white/[0.04] border border-gold/10 px-3 py-2 text-left">
                   <span className="text-gold/70"><Sigil role="loyal" size={22} /></span>
                   <span className="font-display tracking-wide">{p.name}{p.id === state.you && <span className="text-gold/60"> · you</span>}</span>
+                  {p.isBot && <span className="rounded border border-gold/40 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.2em] text-gold/80">AI</span>}
                   {p.id === state.you && state.isHost && <span className="ml-auto eyebrow text-gold/60">Host</span>}
+                  {p.isBot && state.isHost && (
+                    <button onClick={() => send({ t: 'removeBot', id: p.id })} title="Remove AI player"
+                      className="ml-auto text-parch/40 hover:text-crimson-bright transition">✕</button>
+                  )}
                 </motion.li>
               ))}
             </AnimatePresence>
           </ul>
 
-          <div className="mt-4">
+          <div className="mt-4 space-y-2">
             {state.isHost ? (
-              <button className="w-full rounded-lg bg-gradient-to-b from-gold-bright to-gold py-2.5 font-display tracking-emblem text-steel-deep font-bold disabled:opacity-40"
-                disabled={!enough} onClick={() => send({ t: 'start' })}>
-                {enough ? 'Begin the Quest' : `Need ${state.minPlayers - state.players.length} more`}
-              </button>
+              <>
+                {!full && (
+                  <button className="w-full rounded-lg border border-gold/30 bg-white/[0.04] py-2 font-display text-sm tracking-emblem text-gold/80 hover:bg-white/[0.08]"
+                    onClick={() => send({ t: 'addBot' })}>
+                    + Add AI player
+                  </button>
+                )}
+                <button className="w-full rounded-lg bg-gradient-to-b from-gold-bright to-gold py-2.5 font-display tracking-emblem text-steel-deep font-bold disabled:opacity-40"
+                  disabled={!enough} onClick={() => send({ t: 'start' })}>
+                  {enough ? 'Begin the Quest' : `Need ${state.minPlayers - state.players.length} more`}
+                </button>
+              </>
             ) : (
               <p className="text-sm text-parch/50">Awaiting the host’s command…</p>
             )}

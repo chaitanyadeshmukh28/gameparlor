@@ -18,6 +18,42 @@ const shuffle = (a) => {
 };
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+// How many lines of interrogation chatter a bot will contribute per round.
+// Bounded so the shared bot-tick always settles (no endless back-and-forth).
+const CHATTER_CAP = 2;
+
+// Built-in question/answer TEMPLATES for the (plain-code) bots. This is the
+// language seam: swap `_botLine()` for an LLM later and the rest is unchanged.
+// Questions are location-agnostic so anyone can ask them.
+const BOT_QUESTIONS = [
+  'So what keeps you here so late?',
+  "You look jumpy — something on your mind?",
+  'How well do you actually know this place?',
+  "What's your business around here tonight?",
+  'Seen anyone acting strange so far?',
+  "You sure you belong here, friend?",
+  "What were you doing before all this?",
+];
+// Non-spies KNOW the location + their cover role, so they answer vaguely but
+// plausibly — enough to sound like they belong, not enough to hand it over.
+const BOT_AGENT_LINES = [
+  'A {role} like me? Just working the room.',
+  'Around the {loc} you learn to keep quiet.',
+  'Same as any other night at the {loc}.',
+  "I've got my hands full with the {role} work.",
+  'Nothing out of the ordinary — the {loc} runs itself.',
+  "Ask anyone here; {role} duty never stops.",
+];
+// The undercover has no location — deflect, generalize, turn it around.
+const BOT_SPY_LINES = [
+  "Wouldn't you like to know.",
+  'I mind my own business, same as you should.',
+  'Same as everyone else in this room, I figure.',
+  "You're awfully curious for a stranger.",
+  'I go where the work takes me.',
+  "Funny — I was about to ask you the same thing.",
+];
+
 export class Game extends BaseGame {
   constructor(code) {
     super(code);
@@ -48,6 +84,7 @@ export class Game extends BaseGame {
       p.isSpy = i === spyIdx;
       p.role = p.isSpy ? null : roleBag[i % roleBag.length];
       p.voted = undefined;
+      p.chatterCount = 0;
     });
 
     this.firstAskerId = active[Math.floor(Math.random() * active.length)].id;
@@ -115,6 +152,7 @@ export class Game extends BaseGame {
 
     switch (msg.t) {
       case 'config':      return this._config(me, msg);
+      case 'say':         return this._say(me, msg);
       case 'callVote':    return this._callVote(me, msg);
       case 'castVote':    return this._castVote(me, msg);
       case 'declare':     return this._declare(me);
@@ -129,6 +167,18 @@ export class Game extends BaseGame {
     if (me.id !== this.hostId) return { error: 'Only the host can change settings.' };
     if (typeof msg.durationSec === 'number')
       this.durationSec = clamp(Math.round(msg.durationSec), 120, 900);
+    return {};
+  }
+
+  // Interrogation chatter — a line in the shared case log. Bots use templated
+  // Q&A here; humans may chime in too. Bots are capped so the tick settles.
+  _say(me, msg) {
+    if (this.phase !== 'play') return { error: 'Save it for the interrogation.' };
+    const text = typeof msg.text === 'string' ? msg.text.trim().slice(0, 140) : '';
+    if (!text) return { error: 'Say something first.' };
+    if (me.isBot && (me.chatterCount || 0) >= CHATTER_CAP) return { error: 'Nothing more to add.' };
+    me.chatterCount = (me.chatterCount || 0) + 1;
+    this.note(`${me.name}: ${text}`);
     return {};
   }
 
@@ -215,6 +265,69 @@ export class Game extends BaseGame {
     return {};
   }
 
+  // ---- AI player ---------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (`viewFor(botId)`)
+  // — the same seam a future LLM would use. Returns the next legal message to
+  // send (the shape a human client sends into handleMessage), or null if the
+  // bot owes no move right now.
+  botDecide(view, rng = Math.random) {
+    const meId = view.you;
+    const me = view.players.find((p) => p.id === meId);
+    if (!me) return null;
+
+    // The undercover has broken cover and must name the location.
+    if (view.phase === 'spyGuess') {
+      if (!view.youAreSpy) return null;
+      const n = view.board?.length || 0;
+      if (!n) return null;
+      // No knowledge of the real place — pick a plausible one off the board.
+      return { t: 'guess', locationIndex: Math.floor(rng() * n) };
+    }
+
+    // An accusation is on the table — weigh in if we're an eligible voter.
+    if (view.phase === 'vote' && view.vote) {
+      if (!view.vote.youEligible) return null;
+      // A wrongful conviction is a win for the undercover (which can't be the
+      // one accused here), so it always convicts; agents convict on a hunch.
+      const guilty = view.youAreSpy ? true : rng() < 0.7;
+      return { t: 'castVote', agree: guilty };
+    }
+
+    // Open questioning.
+    if (view.phase === 'play') {
+      // Trade some in-character interrogation chatter first (bounded per round).
+      if (view.youMayChatter && rng() < 0.7) {
+        return { t: 'say', text: this._botLine(view, rng) };
+      }
+      // The undercover eventually gambles on naming the place.
+      if (view.youAreSpy) {
+        return rng() < 0.35 ? { t: 'declare' } : null;
+      }
+      // An agent calls a vote on a hunch (one accusation per player per round).
+      if (view.canAccuse && rng() < 0.35) {
+        const suspects = view.players.filter((p) => p.id !== meId && p.connected);
+        if (suspects.length) {
+          const target = suspects[Math.floor(rng() * suspects.length)];
+          return { t: 'callVote', target: target.id };
+        }
+      }
+      return null;
+    }
+
+    // roundOver: dealing the next round is a host/human call — nothing owed.
+    return null;
+  }
+
+  // Pick a templated interrogation line appropriate to what the bot knows.
+  _botLine(view, rng) {
+    const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+    if (rng() < 0.5) return pick(BOT_QUESTIONS);
+    if (view.youAreSpy) return pick(BOT_SPY_LINES);
+    const loc = view.location || 'this place';
+    const role = view.yourRole || 'regular';
+    return pick(BOT_AGENT_LINES).replaceAll('{loc}', loc).replaceAll('{role}', role);
+  }
+
   // ---- resolution & scoring ---------------------------------------------
   _endRound(outcome) {
     this._clearTimer();
@@ -295,6 +408,7 @@ export class Game extends BaseGame {
       id: p.id,
       name: p.name,
       connected: p.connected,
+      isBot: !!p.isBot,
       score: p.score || 0,
       hasVoted: this.phase === 'vote' ? p.voted !== undefined : false,
       // The undercover's identity stays sealed until the reveal.
@@ -327,6 +441,8 @@ export class Game extends BaseGame {
       timerRunning: !!this.timerRunning,
 
       canAccuse: this.phase === 'play' && !!me && !this.accusationsUsed?.has(me.id),
+      // Whether you still have interrogation chatter left to contribute.
+      youMayChatter: this.phase === 'play' && !!me && (me.chatterCount || 0) < CHATTER_CAP,
     };
 
     if (this.phase === 'vote' && this.vote) {

@@ -46,19 +46,28 @@ export default function Lobby({ state, code, send }) {
               </span>
               <span className="font-medium">{p.name}</span>
               {p.id === state.you && <span className="text-xs text-parch-faint">(you)</span>}
-              {p.id === state.turn && state.isHost && <span />}
+              {p.isBot && <span className="text-[0.6rem] uppercase tracking-wider text-gilt/80 border border-gilt/30 rounded px-1.5 py-0.5">AI</span>}
               <span className="ml-auto flex items-center gap-2 text-xs text-parch-faint">
                 {i === 0 && <span className="text-gilt">Host</span>}
-                <span className={`w-2 h-2 rounded-full ${p.connected ? 'bg-ambassador' : 'bg-parch-faint/40'}`} />
+                {p.isBot && state.isHost
+                  ? <button onClick={() => send({ t: 'removeBot', id: p.id })} className="text-parch-faint hover:text-assassin transition" title="Remove AI player">✕</button>
+                  : <span className={`w-2 h-2 rounded-full ${p.connected ? 'bg-ambassador' : 'bg-parch-faint/40'}`} />}
               </span>
             </motion.li>
           ))}
         </ul>
 
         {state.isHost ? (
-          <button className="btn-gilt w-full mt-5" onClick={() => send({ t: 'start' })} disabled={!canStart}>
-            {canStart ? 'Begin the game' : 'Waiting for one more player…'}
-          </button>
+          <div className="mt-5 space-y-2">
+            {state.players.length < 6 && (
+              <button className="btn-ghost w-full" onClick={() => send({ t: 'addBot' })}>
+                + Add AI player
+              </button>
+            )}
+            <button className="btn-gilt w-full" onClick={() => send({ t: 'start' })} disabled={!canStart}>
+              {canStart ? 'Begin the game' : 'Waiting for one more player…'}
+            </button>
+          </div>
         ) : (
           <p className="mt-5 text-center text-sm text-parch-dim">Waiting for {state.players[0]?.name} to start…</p>
         )}

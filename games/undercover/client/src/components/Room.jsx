@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Timer from './Timer.jsx';
 import Dossier from './Dossier.jsx';
@@ -48,6 +48,7 @@ export default function Room({ state, code, send, error }) {
           <AnimatePresence mode="wait">
             {state.phase === 'play' && (
               <motion.div key="play" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                <Transcript state={state} send={send} />
                 {accuseMode ? (
                   <div className="panel p-3 text-center">
                     <p className="font-cond text-sm text-amber mb-2">Tap the suspect you accuse of being the spy.</p>
@@ -94,6 +95,51 @@ export default function Room({ state, code, send, error }) {
       <AnimatePresence>{boardOpen && <CaseBoard state={state} onClose={() => setBoardOpen(false)} />}</AnimatePresence>
       <AnimatePresence>{state.phase === 'roundOver' && <RoundOver state={state} send={send} />}</AnimatePresence>
       <Toast error={error} />
+    </div>
+  );
+}
+
+// The interrogation transcript: recent case-log chatter (bots trade templated
+// questions and answers here; humans can chime in too).
+function Transcript({ state, send }) {
+  const [text, setText] = useState('');
+  const scroller = useRef(null);
+  const lines = (state.log || []).slice(-6);
+
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [state.log?.length]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+    send({ t: 'say', text: t });
+    setText('');
+  };
+
+  return (
+    <div className="panel p-2.5 mb-2">
+      <p className="eyebrow mb-1.5">Interrogation log</p>
+      <div ref={scroller} className="max-h-20 overflow-y-auto pr-1 space-y-0.5 mb-2">
+        {lines.length === 0 ? (
+          <p className="text-xs text-bone-faint italic">The room is quiet. Start asking around…</p>
+        ) : (
+          lines.map((l, i) => (
+            <p key={i} className="font-cond text-[0.78rem] leading-snug text-bone-dim">{l.text}</p>
+          ))
+        )}
+      </div>
+      <form onSubmit={submit} className="flex gap-1.5">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={140}
+          placeholder="Ask a question…"
+          className="field !py-1.5 !px-2.5 text-sm flex-1"
+        />
+        <button type="submit" className="btn-line !py-1.5 !px-3 text-xs shrink-0" disabled={!text.trim()}>Say</button>
+      </form>
     </div>
   );
 }

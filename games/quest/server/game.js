@@ -392,6 +392,82 @@ export class Game extends BaseGame {
     return {};
   }
 
+  // ---- AI player -----------------------------------------------------------
+  // Heuristic bot. Decides purely from its own redacted view (the same seam an
+  // LLM would use). Returns the next message the bot should send, or null when
+  // it owes no move right now. Good bots always send Success; evil bots betray
+  // sometimes (the engine coerces good players to Success regardless).
+  botDecide(view, rng = Math.random) {
+    const me = view.you;
+    const evil = view.yourTeam === 'evil';
+    const known = new Set(view.knowledge?.ids || []); // merlin: evil; evil: fellow evil
+    const shuf = (arr) => {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      return a;
+    };
+
+    switch (view.phase) {
+      // Night: swear the oath so the game can begin.
+      case 'reveal':
+        return view.ready ? null : { t: 'ready' };
+
+      // Leader picks the questing party (must include the exact team size).
+      case 'propose': {
+        if (view.leader !== me) return null;
+        const size = view.teamSize;
+        const others = view.players.filter((p) => p.id !== me).map((p) => p.id);
+        // Merlin shuns the evil he can see; a lone evil leader keeps fellow
+        // conspirators off the team to stay clean (self is saboteur enough).
+        const avoid = (view.yourRole?.key === 'merlin' || evil) ? known : new Set();
+        const preferred = shuf(others.filter((id) => !avoid.has(id)));
+        const rest = shuf(others.filter((id) => avoid.has(id)));
+        const team = [me, ...preferred, ...rest].slice(0, size);
+        return { t: 'propose', team };
+      }
+
+      // Approve / reject the proposed team.
+      case 'vote': {
+        if (view.yourVote !== null) return null;
+        const team = view.proposal || [];
+        if (evil) {
+          // Happy to send a team that carries a saboteur; otherwise usually block.
+          const hasEvil = team.some((id) => id === me || known.has(id));
+          return { t: 'vote', approve: hasEvil || rng() < 0.3 };
+        }
+        // Good: reject a team that (to Merlin) harbours evil — but never risk the
+        // five-rejection collapse; once proposals keep failing, wave it through.
+        const suspect = view.rejectCount < 3 && team.some((id) => known.has(id));
+        return { t: 'vote', approve: !suspect };
+      }
+
+      // Secret quest card. Good must succeed; evil betrays most of the time.
+      case 'quest': {
+        if (!view.onQuest || view.yourCard !== null) return null;
+        if (!evil) return { t: 'play', success: true };
+        return { t: 'play', success: rng() < 0.7 ? false : true };
+      }
+
+      // Any seat may advance the cinematic reveals.
+      case 'voteReveal':
+      case 'questReveal':
+        return { t: 'proceed' };
+
+      // Endgame: the Assassin names a plausible Merlin among the good.
+      case 'assassin': {
+        if (view.assassin !== me) return null;
+        const candidates = view.players
+          .filter((p) => p.id !== me && !known.has(p.id))
+          .map((p) => p.id);
+        if (!candidates.length) return null;
+        return { t: 'assassinate', target: shuf(candidates)[0] };
+      }
+
+      default:
+        return null;
+    }
+  }
+
   // ---- per-player redacted view -------------------------------------------
   gameView(id) {
     const me = this.byId(id);
@@ -404,6 +480,7 @@ export class Game extends BaseGame {
         id: p.id,
         name: p.name,
         connected: p.connected,
+        isBot: !!p.isBot,
         isLeader: this.phase !== 'lobby' && p.id === this.leader()?.id,
         onTeam: this.proposal ? this.proposal.includes(p.id) : false,
         hasVoted: this.phase === 'vote' ? this.votes[p.id] !== undefined : false,
