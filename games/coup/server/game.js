@@ -492,6 +492,17 @@ export class CoupGame {
   viewFor(id) {
     this.seq++;
     const me = this.byId(id);
+    // Public deck accounting: total copies of each character across the whole
+    // game (draw pile + every hand) and how many are face-up (dead/revealed),
+    // so players can deduce how many of each remain unseen.
+    const charTotal = Object.fromEntries(CHARACTERS.map((c) => [c, 0]));
+    const charRevealed = Object.fromEntries(CHARACTERS.map((c) => [c, 0]));
+    for (const c of this.deck) charTotal[c]++;
+    for (const pl of this.players) for (const card of pl.influence) {
+      charTotal[card.char]++;
+      if (card.revealed) charRevealed[card.char]++;
+    }
+    const charCounts = CHARACTERS.map((c) => ({ char: c, total: charTotal[c], revealed: charRevealed[c] }));
     return {
       code: this.code,
       phase: this.phase,
@@ -499,7 +510,11 @@ export class CoupGame {
       isHost: this.hostId === id,
       turn: this.players[this.turnIndex]?.id ?? null,
       winner: this.winner,
+      winReason: this.phase === 'over' && this.winner
+        ? 'Last one standing — every rival lost both influences.'
+        : null,
       deckCount: this.deck.length,
+      charCounts,
       seq: this.seq,
       players: this.players.map((p) => ({
         id: p.id,
@@ -509,10 +524,11 @@ export class CoupGame {
         connected: p.connected,
         eliminated: p.eliminated,
         influenceCount: this.alive(p),
-        // Reveal a card's identity only if it's dead, or it belongs to the viewer.
+        // Reveal a card's identity if it's dead, it belongs to the viewer, or
+        // the game is over and this is the winner (final-hand showdown).
         cards: p.influence.map((c) => ({
           revealed: c.revealed,
-          char: c.revealed || p.id === id ? c.char : null,
+          char: c.revealed || p.id === id || (this.phase === 'over' && p.id === this.winner) ? c.char : null,
         })),
       })),
       pending: this.pending ? {

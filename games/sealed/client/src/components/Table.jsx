@@ -63,7 +63,7 @@ export default function Table({ state, code, send, error }) {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 w-full max-w-3xl mx-auto flex flex-col px-3 sm:px-5 py-2 gap-2">
+      <main className="flex-1 min-h-0 w-full max-w-3xl mx-auto flex flex-col px-3 sm:px-5 py-2 gap-2 overflow-y-auto no-scrollbar">
         {/* status */}
         <Status state={state} me={me} myTurn={myTurn} />
 
@@ -84,8 +84,10 @@ export default function Table({ state, code, send, error }) {
         </div>
 
         {/* courier / delivery */}
-        <div className="flex-1 min-h-0 grid place-items-center overflow-hidden">
-          <Courier state={state} />
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+          <div className="min-h-full grid place-items-center py-2">
+            <Courier state={state} />
+          </div>
         </div>
 
         {/* your hand + composer */}

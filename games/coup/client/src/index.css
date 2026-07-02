@@ -42,6 +42,10 @@ body::before {
 ::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.3); border-radius: 99px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* Hide scrollbars where an internal scroll must exist but shouldn't show chrome. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
 @layer components {
   .eyebrow {
     @apply font-mono text-[0.66rem] uppercase tracking-[0.32em] text-parch-faint;

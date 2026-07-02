@@ -36,8 +36,10 @@ export default function OpsRoom({ state, code, send, error }) {
       {/* Transmission banner */}
       <Transmission clue={clue} turn={turn} turnRole={turnRole} className="shrink-0 mt-2" />
 
-      {/* The 5x5 grid — the signature element */}
-      <div className="flex-1 min-h-0 grid place-items-center py-2">
+      {/* The 5x5 grid — the signature element. Scrolls on short screens so the
+          board is never clipped and the action tray below stays reachable. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="min-h-full grid place-items-center py-2">
         <div className="grid grid-cols-5 gap-1.5 w-full max-w-[30rem]">
           {board.map((tile, i) => (
             <Tile
@@ -49,6 +51,7 @@ export default function OpsRoom({ state, code, send, error }) {
               delay={Math.min(i * 0.012, 0.3)}
             />
           ))}
+        </div>
         </div>
       </div>
 

@@ -15,7 +15,11 @@ import { randomUUID } from 'crypto';
 
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
 const BOT_NAMES = ['Ada', 'Turing', 'Nova', 'Echo', 'Pixel', 'Bishop', 'Vera', 'Jinx', 'Neo', 'Data'];
-const BOT_DELAY = 850;   // ms between successive bot actions (readable pacing)
+// Bot pacing — slow enough that a human can read each move in the log before the
+// next one lands. A longer beat follows a HUMAN move (so you can see what you /
+// another person just played) than the gap between consecutive bot moves.
+const BOT_MOVE_DELAY = 1500;      // ms between one bot action and the next
+const HUMAN_TO_BOT_DELAY = 2200;  // ms after a human move before the first bot replies
 const BOT_MAX_STEPS = 400; // safety valve against a runaway botDecide loop
 const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
@@ -64,6 +68,8 @@ export function createGameMount(GameClass) {
     if (room.botTimer) return;                                  // a tick is already pending
     if (game.phase === 'lobby' || typeof game.botDecide !== 'function') return;
     if (!game.players.some((p) => p.isBot)) return;
+    // Longer pause right after a human move; brisker between successive bot moves.
+    const delay = room.humanActed ? HUMAN_TO_BOT_DELAY : BOT_MOVE_DELAY;
     room.botTimer = setTimeout(() => {
       room.botTimer = null;
       if (!rooms.has(code)) return;
@@ -79,8 +85,9 @@ export function createGameMount(GameClass) {
         acted = true;
         break;                                                 // one action per tick
       }
-      if (acted) broadcast(code);                              // re-broadcast + re-schedule
-    }, BOT_DELAY);
+      // A bot just moved → the next tick is bot-to-bot, so use the shorter gap.
+      if (acted) { room.humanActed = false; broadcast(code); } // re-broadcast + re-schedule
+    }, delay);
   }
 
   function attach(ws, code, name, token) {
@@ -93,6 +100,7 @@ export function createGameMount(GameClass) {
     }
     ws.meta = { code, playerId: player.id };
     room.sockets.set(player.id, ws);
+    room.humanActed = true;                                    // a human just joined
     send(ws, { t: 'joined', code, you: player.id, token: player.token });
     broadcast(code);
   }
@@ -104,6 +112,7 @@ export function createGameMount(GameClass) {
     room.sockets.delete(playerId);
     room.game.removePlayer(playerId);
     ws.meta = { code: null, playerId: null };
+    room.humanActed = true;                                    // a human just left
     broadcast(code);
     cleanup(code);
   }
@@ -115,7 +124,7 @@ export function createGameMount(GameClass) {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
       const room = ws.meta.code ? rooms.get(ws.meta.code) : null;
-      if (room) room.botSteps = 0;                             // reset safety valve on human input
+      if (room) { room.botSteps = 0; room.humanActed = true; } // human input: reset safety valve + pace bots after
 
       const guard = (rm, fn) => {
         if (!rm) return send(ws, { t: 'error', message: 'You are not in a game.' });

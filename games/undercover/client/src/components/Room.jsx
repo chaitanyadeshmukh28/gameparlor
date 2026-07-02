@@ -32,14 +32,16 @@ export default function Room({ state, code, send, error }) {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 w-full max-w-md mx-auto flex flex-col px-3 py-2.5 gap-2.5 overflow-hidden">
+      <main className="flex-1 min-h-0 w-full max-w-md mx-auto flex flex-col px-3 py-2.5 gap-2.5 overflow-y-auto">
         <Timer state={state} />
         <Suspects state={state} accuseMode={accuseMode} onPick={accuse} />
 
         {/* Center: your dossier (hidden for the spy while they're picking). */}
         {!(state.phase === 'spyGuess' && state.youAreSpy) && (
-          <div className="flex-1 min-h-0 grid place-items-center overflow-hidden">
-            <Dossier state={state} />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="min-h-full grid place-items-center py-2">
+              <Dossier state={state} />
+            </div>
           </div>
         )}
 

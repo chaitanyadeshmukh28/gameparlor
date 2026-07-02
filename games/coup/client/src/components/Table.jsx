@@ -5,6 +5,8 @@ import PlayerSeat, { Coins } from './PlayerSeat.jsx';
 import { ActionBar, ResponsePrompt, LossPrompt, ExchangePrompt } from './Prompts.jsx';
 import StatusTray from './StatusTray.jsx';
 import { CheatSheetButton } from './CheatSheet.jsx';
+import { Emblem } from '../emblems.jsx';
+import { CHARACTERS as CHAR_META } from '../game-meta.js';
 
 export default function Table({ state, code, send, error }) {
   const me = state.players.find((p) => p.id === state.you);
@@ -44,7 +46,7 @@ export default function Table({ state, code, send, error }) {
       </header>
 
       {/* Table surface — a single screen, no scrolling. */}
-      <main className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex flex-col px-2 sm:px-5 py-2 sm:py-3 gap-2 sm:gap-3 overflow-y-auto">
+      <main className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex flex-col px-2 sm:px-5 py-2 sm:py-3 gap-2 sm:gap-3 overflow-y-auto no-scrollbar">
         {/* Who's acted, who we're waiting on */}
         <StatusTray state={state} />
 
@@ -64,9 +66,12 @@ export default function Table({ state, code, send, error }) {
           ))}
         </div>
 
-        {/* The court: the deck and a recap of what just happened */}
-        <div className="flex-1 min-h-0 grid place-items-center overflow-hidden">
-          <Court state={state} />
+        {/* The court: the deck and a recap of what just happened.
+            Scrolls internally on short screens so the action dock below is never clipped. */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+          <div className="min-h-full grid place-items-center py-2">
+            <Court state={state} />
+          </div>
         </div>
 
         {/* Bottom dock: your hand on the left, what you can do on the right */}
@@ -163,6 +168,31 @@ function Court({ state }) {
         </span>
       </div>
 
+      {/* Deck composition: how many of each character remain unseen (unseen / total).
+          Coup ships 3 of each — track the dead cards to deduce who holds what. */}
+      {state.charCounts?.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-1 max-w-[16rem]">
+          {state.charCounts.map(({ char, total, revealed }) => {
+            const meta = CHAR_META[char];
+            const unseen = total - revealed;
+            return (
+              <div
+                key={char}
+                className="flex items-center gap-1 rounded border bg-white/[0.02] px-1.5 py-0.5"
+                style={{ borderColor: `${meta?.color || '#c9a227'}33` }}
+                title={`${meta?.name || char}: ${unseen} of ${total} unseen (${revealed} revealed)`}
+              >
+                <span style={{ color: meta?.color }}><Emblem name={char} className="w-3 h-3" /></span>
+                <span className="font-mono text-[0.6rem] leading-none">
+                  <span className="text-parch">{unseen}</span>
+                  <span className="text-parch-faint">/{total}</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* What just happened — a short recap, newest at the bottom */}
       <div className="text-center min-w-0 max-w-md">
         <p className="eyebrow mb-1 sm:mb-1.5">Last moves</p>
@@ -194,17 +224,42 @@ function Court({ state }) {
 function GameOver({ state, send }) {
   const winner = state.players.find((p) => p.id === state.winner);
   const iWon = state.winner === state.you;
+  // The server reveals the winner's final hand at game over.
+  const survivors = (winner?.cards || []).filter((c) => c.char);
+  // How it ended: the last few meaningful log lines (eliminations, the winning blow).
+  const recap = (state.log || []).filter((e) => !isNoise(e.text)).slice(-3);
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 grid place-items-center bg-felt-deep/85 backdrop-blur-md px-5"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-felt-deep/85 backdrop-blur-md px-5 py-8"
     >
-      <motion.div initial={{ scale: 0.9, y: 10 }} animate={{ scale: 1, y: 0 }} className="panel p-8 text-center max-w-sm w-full">
+      <motion.div initial={{ scale: 0.9, y: 10 }} animate={{ scale: 1, y: 0 }} className="panel p-7 sm:p-8 text-center max-w-sm w-full my-auto">
         <p className="eyebrow mb-3">{iWon ? 'The last seat is yours' : 'The dust settles'}</p>
         <h2 className="font-display text-4xl font-black mb-2 gilt-text">{winner ? winner.name : 'No one'} wins</h2>
-        <p className="text-parch-dim text-sm mb-6">
-          {iWon ? 'Every rival outplayed, outbluffed, undone.' : `${winner?.name} was the last conspirator standing.`}
+        <p className="text-parch-dim text-sm mb-5">
+          {state.winReason || `${winner?.name || 'No one'} was the last conspirator standing.`}
         </p>
+
+        {survivors.length > 0 && (
+          <div className="mb-5">
+            <p className="eyebrow mb-2">{iWon ? 'Your winning hand' : `${winner.name}'s winning hand`}</p>
+            <div className="flex gap-2 justify-center">
+              {survivors.map((c, i) => (
+                <Card key={i} char={c.char} faceUp dead={c.revealed} size="md" delay={i * 0.1} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {recap.length > 0 && (
+          <div className="mb-6 text-left rounded-lg border border-parch/10 bg-white/[0.02] p-3 space-y-1">
+            <p className="eyebrow mb-1">How it ended</p>
+            {recap.map((e, i) => (
+              <p key={i} className="text-xs text-parch-dim leading-snug">{e.text}</p>
+            ))}
+          </div>
+        )}
+
         {state.isHost ? (
           <button className="btn-gilt w-full" onClick={() => send({ t: 'restart' })}>Play again</button>
         ) : (
