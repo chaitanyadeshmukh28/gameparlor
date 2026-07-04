@@ -236,6 +236,34 @@ function Leaderboard({ state }) {
   );
 }
 
+// The shared discard pile — every letter played by everyone this round, laid
+// out low to high. Public knowledge, and the game's core deduction aid: with a
+// 16-letter deck of known make-up, what's face-up here tells you what's still
+// in play. Each rank shows a count once it's been played more than once.
+function DiscardTray({ players }) {
+  const all = players.flatMap((p) => p.discards || []);
+  if (all.length === 0) return null;
+  const counts = all.reduce((m, r) => ((m[r] = (m[r] || 0) + 1), m), {});
+  const ranks = Object.keys(counts).map(Number).sort((a, b) => a - b);
+  return (
+    <div className="shrink-0 w-full flex flex-col items-center gap-1 pt-1">
+      <span className="eyebrow !text-[0.5rem]">letters played · <span className="tabular-nums">{all.length}</span></span>
+      <div className="flex flex-wrap justify-center gap-1.5 max-w-[20rem]">
+        {ranks.map((r) => (
+          <span key={r} className="relative">
+            <DiscardPip rank={r} />
+            {counts[r] > 1 && (
+              <span className="absolute -top-1.5 -left-1.5 grid place-items-center min-w-[0.85rem] h-3.5 px-0.5 rounded-full bg-plum-deep border border-rose/40 text-[0.5rem] font-bold text-blush tabular-nums">
+                ×{counts[r]}
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // A tiny color-coded chip for a discarded card — emblem + rank.
 function DiscardPip({ rank }) {
   const c = META[rank];
@@ -314,6 +342,9 @@ function Courier({ state }) {
           )}
         </AnimatePresence>
       </div>
+
+      {/* The whole table's discard pile — everyone's played letters. */}
+      <DiscardTray players={state.players} />
     </div>
   );
 }
@@ -470,12 +501,6 @@ function YourSide(props) {
           </div>
         </div>
         {eliminated && <span className="font-display text-wax uppercase tracking-widest text-sm">Out this round</span>}
-        {me.discards.length > 0 && (
-          <div className="hidden sm:flex items-center gap-1 text-rose-faint text-xs">
-            <span className="eyebrow !text-[0.5rem]">discarded</span>
-            {me.discards.slice(-4).map((r, i) => <DiscardPip key={i} rank={r} />)}
-          </div>
-        )}
       </div>
 
       {/* A compact, icon-based memo of what only you know — the dramatic reveal
