@@ -287,5 +287,27 @@ function newGame() {
   ok(g.byId('b').influence.filter((c) => c.revealed).length === 1, 'the idle target auto-drops one card');
 })();
 
+// A proven action claim cannot be challenged twice. Ann steals from Cy claiming
+// Captain; Bo challenges and loses (Ann reshuffles + redraws); Cy must NOT be
+// able to challenge the same Captain again — only block or pass.
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['captain', 'duke']);
+  setHand(g, 'Bo', ['contessa', 'contessa']);
+  setHand(g, 'Cy', ['duke', 'duke']);          // Cy can't legally block a steal
+  g.byId('c').coins = 2;
+  g.declare('a', 'steal', 'c');                 // Ann claims Captain
+  ok(g.phase === 'response' && g.pending._mode === 'open', 'steal opens the challenge/block window');
+  g.respond('b', 'challenge');                  // Bo challenges, wrongly
+  ok(g.pendingLoss && g.pendingLoss.playerId === 'b', 'the wrong challenger loses influence');
+  g.loseInfluence('b', 0);                      // Bo loses a card; Ann redraws
+  ok(g.phase === 'response' && g.pending._mode === 'block', 'a block-only window opens for the target');
+  ok(g.viewFor('c').pending.canChallenge === false, 'the target is not offered a second challenge');
+  const r = g.respond('c', 'challenge');        // Cy tries to re-challenge the proven Captain
+  ok(r && r.error, 'a proven action claim cannot be challenged again');
+  ok(g.byId('a').influence.filter((x) => x.revealed).length === 0, 'the claimant loses no influence to an illegal second challenge');
+  ok(!g.byId('a').eliminated && g.phase === 'response', 'the game stays in the block window; the claimant is unharmed');
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

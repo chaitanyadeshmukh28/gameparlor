@@ -242,6 +242,10 @@ export class CoupGame {
 
     if (kind === 'challenge') {
       if (pd._mode === 'block_challenge') return this.resolveBlockChallenge(id);
+      // An action's claim can be challenged only once. After it's been proven
+      // (we're now in the block-only window) no one may challenge it again — the
+      // claimant has already reshuffled and redrawn. Block or pass only.
+      if (pd._mode === 'block') return { error: 'That claim was already proven — you may only block or pass.' };
       if (!pd.challengeable) return { error: 'This action cannot be challenged.' };
       return this.resolveActionChallenge(id);
     }
@@ -618,7 +622,10 @@ export class CoupGame {
         eligible: this.pending._eligible || [],
         blockChars: this.blockerIds().includes(id) ? this.pending.blockChars : [],
         canBlock: this.pending._mode !== 'block_challenge' && this.blockerIds().includes(id) && (this.pending._responders || []).includes(id),
-        canChallenge: ((this.pending._mode === 'block_challenge') || this.pending.challengeable) && (this.pending._responders || []).includes(id),
+        // Challenge the ACTION only in the open window; challenge the BLOCK only
+        // in the block-challenge window. The block-only window (after a proven
+        // claim) offers no challenge — that claim is already settled.
+        canChallenge: ((this.pending._mode === 'open' && this.pending.challengeable) || this.pending._mode === 'block_challenge') && (this.pending._responders || []).includes(id),
       } : null,
       pendingLoss: this.pendingLoss ? { playerId: this.pendingLoss.playerId } : null,
       // Exchange choices are private to the player making them.
