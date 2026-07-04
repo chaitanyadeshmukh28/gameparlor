@@ -83,4 +83,14 @@ export const GAMES = [
     url: '/intercept',
     basedOn: 'Decrypto',
   },
+  {
+    slug: 'blackjack',
+    name: 'Blackjack',
+    tagline: 'Beat the house to 21 without busting.',
+    accent: '#e8c877',          // gilt on emerald baize
+    motif: 'blackjack',
+    players: '1–6',
+    url: '/blackjack',
+    basedOn: 'Blackjack / 21',
+  },
 ];

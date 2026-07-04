@@ -15,6 +15,7 @@ import { Game as UndercoverGame } from '../games/undercover/server/game.js';
 import { Game as SealedGame } from '../games/sealed/server/game.js';
 import { Game as QuestGame } from '../games/quest/server/game.js';
 import { Game as InterceptGame } from '../games/intercept/server/game.js';
+import { Game as BlackjackGame } from '../games/blackjack/server/game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,7 @@ const GAMES = {
   sealed: SealedGame,
   quest: QuestGame,
   intercept: InterceptGame,
+  blackjack: BlackjackGame,
 };
 
 const app = express();

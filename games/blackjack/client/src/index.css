@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Blackjack — midnight art-deco casino: emerald baize, gilt rails, ivory cards. */
+:root { color-scheme: dark; }
+* { -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: theme('fontFamily.body');
+  color: #f1ead7;
+  background:
+    radial-gradient(130% 90% at 50% -8%, #0e4a35 0%, #0a3d2c 40%, #052a1f 78%, #04211a 100%),
+    #04211a;
+  overflow-x: hidden;
+}
+
+/* Felt weave — a fine diagonal texture on the baize, plus a soft table vignette. */
+.felt-bg::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.014) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,0.05) 0 2px, transparent 2px 5px);
+  background-size: 7px 7px;
+  mask-image: radial-gradient(120% 100% at 50% 30%, #000 55%, transparent 100%);
+}
+/* A gilt spotlight arc that centres the table. */
+.felt-bg::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(60% 44% at 50% 30%, rgba(232,200,119,0.10), transparent 70%);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@layer components {
+  .eyebrow {
+    @apply text-[0.6rem] uppercase tracking-[0.32em] text-gild/70 font-body;
+  }
+  .gild-text {
+    background: linear-gradient(96deg, #f6e2a6, #e8c877 42%, #c99a3f 74%, #f4dfa0);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  /* Deco panel with a hairline gold rule. */
+  .panel {
+    @apply rounded-2xl border border-gild/25 bg-felt-rail/70 backdrop-blur-sm;
+    box-shadow: theme('boxShadow.rail');
+  }
+  .field {
+    @apply w-full rounded-xl bg-felt-deep/70 border border-gild/25 px-4 py-3 text-ivory
+           placeholder:text-moss/60 outline-none transition
+           focus:border-gild/70 focus:ring-2 focus:ring-gild/25;
+  }
+  .btn-gild {
+    @apply rounded-xl px-4 py-3 font-semibold tracking-wide text-felt-rail transition
+           disabled:opacity-40 disabled:cursor-not-allowed;
+    background: linear-gradient(180deg, #f6e2a6, #e8c877 55%, #c99a3f);
+    box-shadow: 0 6px 16px -6px rgba(232,200,119,0.6), 0 1px 0 rgba(255,255,255,0.5) inset;
+  }
+  .btn-gild:not(:disabled):hover { filter: brightness(1.06); }
+  .btn-gild:not(:disabled):active { transform: translateY(1px); }
+  .btn-ghost {
+    @apply rounded-xl px-4 py-3 font-semibold tracking-wide border border-gild/35
+           text-gild/90 bg-felt-raised/40 transition
+           hover:bg-felt-raised/70 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-act {
+    @apply rounded-xl px-4 py-3 font-semibold tracking-wide border transition
+           disabled:opacity-30 disabled:cursor-not-allowed select-none;
+  }
+  .chip-btn {
+    @apply grid place-items-center rounded-full font-body font-bold text-[0.7rem]
+           border-2 border-dashed transition active:scale-95 disabled:opacity-30;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

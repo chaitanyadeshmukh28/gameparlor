@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { Motif } from '../motifs.jsx';
 
 // hex -> rgba string at a given alpha (accents are 6-digit hex).
 function rgba(hex, a) {
@@ -19,6 +20,7 @@ const tile = {
 export default function GameTile({ game }) {
   const a = game.accent;
   const [hot, setHot] = useState(false);
+  const [logoOk, setLogoOk] = useState(true);
   const spring = { type: 'spring', stiffness: 220, damping: 18 };
 
   return (
@@ -73,15 +75,29 @@ export default function GameTile({ game }) {
             animate={{ opacity: hot ? 1 : 0.45 }}
             transition={{ duration: 0.4 }}
           />
-          <motion.img
-            src={`/logos/${game.slug}.png`}
-            alt={game.name}
-            loading="lazy"
-            draggable={false}
-            className="relative max-h-full w-full object-contain px-3.5"
-            animate={{ scale: hot ? 1.05 : 1 }}
-            transition={spring}
-          />
+          {logoOk ? (
+            <motion.img
+              src={`/logos/${game.slug}.png`}
+              alt={game.name}
+              loading="lazy"
+              draggable={false}
+              onError={() => setLogoOk(false)}
+              className="relative max-h-full w-full object-contain px-3.5"
+              animate={{ scale: hot ? 1.05 : 1 }}
+              transition={spring}
+            />
+          ) : (
+            // No title-card art yet — fall back to the game's engraved motif.
+            <motion.div
+              className="relative flex flex-col items-center gap-1"
+              style={{ color: a }}
+              animate={{ scale: hot ? 1.05 : 1 }}
+              transition={spring}
+            >
+              <Motif name={game.motif} className="h-14 w-14 sm:h-16 sm:w-16" />
+              <span className="font-display text-xl leading-none text-ivory">{game.name}</span>
+            </motion.div>
+          )}
 
           <span className="absolute right-2.5 top-2.5 whitespace-nowrap rounded-full bg-void/55 px-1.5 py-0.5 font-mono text-[0.55rem] uppercase tracking-[0.12em] text-mist/90 backdrop-blur-sm">
             {game.players}

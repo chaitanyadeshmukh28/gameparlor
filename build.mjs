@@ -3,7 +3,7 @@
 // each game builds into dist/<slug>. With `--test`, runs each engine's tests.
 import { execSync } from 'child_process';
 
-const GAMES = ['coup', 'nightfall', 'cipher', 'council', 'undercover', 'sealed', 'quest', 'intercept'];
+const GAMES = ['coup', 'nightfall', 'cipher', 'council', 'undercover', 'sealed', 'quest', 'intercept', 'blackjack'];
 const test = process.argv.includes('--test');
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit' });

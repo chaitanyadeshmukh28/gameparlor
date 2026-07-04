@@ -89,6 +89,14 @@ export function Motif({ name, className }) {
           <path d="M14.5 6.5 Q24 -0.5 33.5 6.5" />
         </svg>
       );
+    case 'blackjack': // an ace of spades — the natural 21
+      return (
+        <svg {...p}>
+          <rect x="14" y="8" width="20" height="32" rx="3.5" />
+          <path d="M24 15 C20 20 17 22 17 25.5 A3.4 3.4 0 0 0 23 27.5 C23 30 22 31.5 21 33 H27 C26 31.5 25 30 25 27.5 A3.4 3.4 0 0 0 31 25.5 C31 22 28 20 24 15 Z" />
+          <path d="M18.5 12 h1.5 M28 36 h1.5" />
+        </svg>
+      );
     default:
       return null;
   }
