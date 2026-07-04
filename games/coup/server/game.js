@@ -34,6 +34,7 @@ export class CoupGame {
     this.pending = null;             // current action context
     this.pendingLoss = null;        // {playerId, then}
     this.pendingExchange = null;     // {playerId, cards:[chars], keep:int}
+    this.pendingReplace = null;      // {playerId, char} deferred challenge-win redraw
     this.winner = null;
     this.log = [];
     this.seq = 0;                    // increments on every state change
@@ -263,9 +264,12 @@ export class CoupGame {
     const challenger = this.byId(challengerId);
     this.note(`${challenger.name} challenges ${actor.name}'s ${cap(pd.claim)}.`);
     if (this.hasCard(actor, pd.claim)) {
-      // Bluff was real — challenger is wrong.
+      // Bluff was real — challenger is wrong. Defer the shuffle-and-redraw of
+      // the proven card until we know the game continues: if the challenger's
+      // loss ends the game, the winner keeps the card they just proved (so the
+      // final showdown reveals it, not a random replacement).
       this.note(`${actor.name} reveals ${cap(pd.claim)}. ${challenger.name} loses the challenge.`);
-      this.replaceCard(actor, pd.claim);
+      this.pendingReplace = { playerId: actor.id, char: pd.claim };
       return this.queueLoss(challengerId, 'proceedAfterClaim');
     }
     // Caught bluffing.
@@ -281,7 +285,7 @@ export class CoupGame {
     this.note(`${challenger.name} challenges ${blocker.name}'s ${cap(pd.block.claim)}.`);
     if (this.hasCard(blocker, pd.block.claim)) {
       this.note(`${blocker.name} reveals ${cap(pd.block.claim)}. The block stands.`);
-      this.replaceCard(blocker, pd.block.claim);
+      this.pendingReplace = { playerId: blocker.id, char: pd.block.claim };
       return this.queueLoss(challengerId, 'cancelAction');
     }
     this.note(`${blocker.name} was bluffing the block!`);
@@ -390,7 +394,13 @@ export class CoupGame {
   }
 
   afterLoss(then) {
+    // A challenge win queues the winner's proven card for shuffle-and-redraw.
+    // Apply it only if the game continues — if this loss ended the game, the
+    // winner keeps (and reveals) the card they proved.
+    const rep = this.pendingReplace;
+    this.pendingReplace = null;
     if (this.checkWin()) return {};
+    if (rep) this.replaceCard(this.byId(rep.playerId), rep.char);
     return this.continue(then);
   }
 
@@ -409,7 +419,7 @@ export class CoupGame {
     if (living.length <= 1 && this.phase !== 'lobby') {
       this.phase = 'over';
       this.winner = living[0]?.id ?? null;
-      this.pending = this.pendingLoss = this.pendingExchange = null;
+      this.pending = this.pendingLoss = this.pendingExchange = this.pendingReplace = null;
       if (this.winner) this.note(`${this.byId(this.winner).name} is the last one standing. Victory!`);
       return true;
     }

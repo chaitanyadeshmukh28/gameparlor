@@ -197,5 +197,42 @@ function newGame() {
   ok(them.cards.every((c) => c.char === null), "you cannot see opponents' face-down cards");
 })();
 
+// N. A challenge win that ENDS the game must not shuffle the winner's proven
+//    card — the showdown reveals the card they actually held.
+(() => {
+  const g = newGame();
+  // Make it heads-up: eliminate Cy.
+  const cy = g.players.find((p) => p.name === 'Cy');
+  cy.influence = [{ char: 'ambassador', revealed: true }, { char: 'ambassador', revealed: true }];
+  cy.eliminated = true;
+  setHand(g, 'Ann', ['duke', 'captain']);
+  setHand(g, 'Bo', ['contessa']);           // Bo has a single influence left
+
+  g.declare('a', 'tax');                     // Ann claims Duke
+  g.respond('b', 'challenge');               // Bo challenges and is wrong
+  ok(g.phase === 'over' && g.winner === 'a', 'the challenge loss ends the game, defender wins');
+  const ann = g.byId('a');
+  ok(ann.influence.some((c) => c.char === 'duke' && !c.revealed),
+    'winner keeps the proven Duke — it is NOT shuffled away on the winning move');
+  const view = g.viewFor('b');               // loser's view at the showdown
+  const annCards = view.players.find((p) => p.id === 'a').cards.map((c) => c.char);
+  ok(annCards.includes('duke'), 'the showdown reveals the winner’s actual proven card');
+})();
+
+// N+1. A challenge win that does NOT end the game still replaces the proven card.
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  setHand(g, 'Bo', ['contessa', 'contessa']);   // Bo survives losing one
+  g.declare('a', 'tax');
+  g.respond('b', 'challenge');
+  g.loseInfluence('b', 0);
+  ok(g.phase !== 'over', 'the game continues (Bo still has a card)');
+  const ann = g.byId('a');
+  ok(ann.influence.length === 2, 'winner still holds two influences after the redraw');
+  // The proven Duke was shuffled back and a fresh card drawn into that slot;
+  // Ann's hand may or may not still be Duke, but the game continued normally.
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
