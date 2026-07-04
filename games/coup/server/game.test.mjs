@@ -234,5 +234,22 @@ function newGame() {
   // Ann's hand may or may not still be Duke, but the game continued normally.
 })();
 
+// N+2. Only the TARGET may block an assassination with a Contessa (official
+//      rule) — a bystander cannot interpose one for someone else. Bluffing your
+//      OWN Contessa block is allowed (it's checked only if challenged).
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['assassin', 'duke']);
+  setHand(g, 'Bo', ['duke', 'ambassador']);       // the target, no Contessa
+  setHand(g, 'Cy', ['contessa', 'contessa']);      // a bystander holding Contessas
+  g.byId('a').coins = 3;
+  g.declare('a', 'assassinate', 'b');
+  const bystander = g.respond('c', 'block', 'contessa');
+  ok(bystander && bystander.error, 'a bystander cannot block another player’s assassination');
+  const own = g.respond('b', 'block', 'contessa'); // the target bluffs their own Contessa
+  ok(!own || !own.error, 'the target may block (or bluff) their own assassination with a Contessa');
+  ok(g.pending.block && g.pending.block.blocker === 'b', 'the target’s Contessa block is registered');
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
