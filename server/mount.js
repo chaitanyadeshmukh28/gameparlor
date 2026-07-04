@@ -40,6 +40,27 @@ export function createGameMount(GameClass) {
     if (!room) return;
     for (const [pid, sock] of room.sockets) send(sock, { t: 'state', state: room.game.viewFor(pid) });
     scheduleBots(code);
+    scheduleTimeout(code);
+  }
+
+  // Server-authoritative turn clock. Opt-in: a game participates only by
+  // exposing a numeric `turnDeadline` (epoch ms) and a `timeout()` method — so
+  // games without a clock are entirely unaffected. When the deadline passes we
+  // call game.timeout() (which auto-resolves the stalled turn) and re-broadcast.
+  function scheduleTimeout(code) {
+    const room = rooms.get(code);
+    if (!room) return;
+    const game = room.game;
+    if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+    if (typeof game.timeout !== 'function' || game.turnDeadline == null) return;
+    const ms = Math.max(0, game.turnDeadline - Date.now());
+    room.turnTimer = setTimeout(() => {
+      room.turnTimer = null;
+      if (!rooms.has(code)) return;
+      if (game.turnDeadline == null || Date.now() < game.turnDeadline) { scheduleTimeout(code); return; }
+      try { game.timeout(); } catch (err) { console.error('timeout error', err); }
+      broadcast(code);
+    }, ms + 40);
   }
 
   // Only humans keep a room alive; a room of only-bots (or nobody) is dropped.
@@ -47,6 +68,7 @@ export function createGameMount(GameClass) {
     const room = rooms.get(code);
     if (room && !room.game.players.some((p) => p.connected && !p.isBot)) {
       if (room.botTimer) clearTimeout(room.botTimer);
+      if (room.turnTimer) clearTimeout(room.turnTimer);
       rooms.delete(code);
     }
   }

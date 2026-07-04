@@ -241,5 +241,73 @@ function settleCase(playerHand, dealerHand, bet = 100) {
   eq(move.t, 'stand', 'a bot stands on 19');
 }
 
+// ---- dealer stands on 17 (casino rule) -------------------------------------
+{
+  const g = table(1);
+  board(g, [[card('10'), card('9')]], [card('10'), card('7')]); // dealer hard 17
+  g.stand('0');
+  eq(g.dealer.hand.length, 2, 'the dealer stands on a hard 17 and draws nothing');
+  eq(g.roundResult.dealer.total, 17, 'the dealer total is 17');
+}
+{
+  const g = table(1);
+  board(g, [[card('10'), card('9')]], [card('A'), card('6')]); // dealer soft 17
+  g.stand('0');
+  eq(g.dealer.hand.length, 2, 'the dealer stands on a soft 17 too');
+  eq(g.roundResult.dealer.total, 17, 'the soft 17 stands at 17');
+}
+
+// ---- host-configurable turn clock ------------------------------------------
+{
+  const g = new Game('TEST');
+  g.addPlayer('0', 'P0');
+  g.addPlayer('1', 'P1');
+  eq(g.config.turnSeconds, 20, 'the default clock is 20s');
+  ok(g.setConfig('1', { turnSeconds: 30 }).error, 'only the host can change settings');
+  ok(!g.setConfig('0', { turnSeconds: 30 }).error, 'the host sets the clock');
+  eq(g.config.turnSeconds, 30, 'the clock updates to 30s');
+  g.setConfig('0', { turnSeconds: 999 });
+  eq(g.config.turnSeconds, 30, 'an invalid clock value is ignored');
+  g.setConfig('0', { turnSeconds: 0 });
+  eq(g.config.turnSeconds, 0, 'the clock can be turned off');
+  g.start('0');
+  ok(g.setConfig('0', { turnSeconds: 20 }).error, 'settings lock once the game starts');
+}
+{
+  const g = table(2);
+  ok(g.turnDeadline != null, 'a clock is armed when betting opens');
+  const view = g.viewFor('0');
+  ok(view.turnEndsInMs != null && view.turnEndsInMs > 0, 'the view exposes remaining time');
+  eq(view.turnSeconds, 20, 'the view carries the configured seconds');
+}
+{
+  const g = new Game('TEST');
+  g.addPlayer('0', 'P0');
+  g.setConfig('0', { turnSeconds: 0 });
+  g.start('0');
+  eq(g.turnDeadline, null, 'no clock is armed when the timer is off');
+  eq(g.viewFor('0').turnEndsInMs, null, 'the view reports no clock');
+}
+
+// ---- timeout auto-resolves ------------------------------------------------
+{
+  // Betting timeout: a player who never bets is folded, the table still deals.
+  const g = table(2);
+  g.placeBet('0', 50);                 // P0 bets, P1 stalls
+  g.turnDeadline = Date.now() - 1;     // force the clock expired
+  g.timeout();
+  ok(g.players[1].sitOut, 'a player who runs out the betting clock folds the hand');
+  eq(g.phase, 'player', 'the table deals once the clock resolves the stragglers');
+}
+{
+  // Player timeout: the active player is stood.
+  const g = table(1);
+  board(g, [[card('5'), card('6')]], [card('10'), card('8')]);
+  g.armDeadline();
+  g.turnDeadline = Date.now() - 1;
+  g.timeout();
+  ok(g.players[0].stood || g.players[0].done, 'running out the turn clock stands the player');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

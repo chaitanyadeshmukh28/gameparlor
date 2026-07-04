@@ -19,6 +19,8 @@ const GOAL = 1500;         // reach this to win the night (3× the buy-in)
 const DECKS = 4;           // cards drawn from a 4-deck shoe
 const RESHUFFLE_AT = 30;   // reshuffle the shoe when it dips below this
 const DEALER_STANDS = 17;  // dealer hits until reaching this (stands on all 17)
+const DEFAULT_TURN_SECONDS = 20;               // per-turn clock (host-configurable)
+export const TURN_OPTIONS = [0, 15, 20, 30, 45]; // 0 = no clock
 
 const shuffle = (arr, rng = Math.random) => {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -60,7 +62,7 @@ export class Game extends BaseGame {
     super(code);
     this.minPlayers = 1;      // a solo player vs the house is a valid table
     this.maxPlayers = 6;
-    this.config = { minBet: MIN_BET, goal: GOAL, startChips: START_CHIPS };
+    this.config = { minBet: MIN_BET, goal: GOAL, startChips: START_CHIPS, turnSeconds: DEFAULT_TURN_SECONDS };
     this.resetGameState();
   }
 
@@ -71,6 +73,13 @@ export class Game extends BaseGame {
     this.roundResult = null;   // payout summary shown at round end
     this.gameWinnerId = null;
     this.roundNo = 0;
+    this.turnDeadline = null;  // epoch ms the current actor / betting window expires
+  }
+
+  // Set (or clear) the countdown for the current context, per the host's config.
+  armDeadline() {
+    const s = this.config.turnSeconds;
+    this.turnDeadline = s && s > 0 ? Date.now() + s * 1000 : null;
   }
 
   // ---- lobby ---------------------------------------------------------------
@@ -139,6 +148,7 @@ export class Game extends BaseGame {
       if (p.chips <= 0) { p.out = true; p.sitOut = true; p.hasBet = true; }
     }
     this.phase = 'betting';
+    this.armDeadline();   // the whole betting window shares one clock
   }
 
   // ---- betting -------------------------------------------------------------
@@ -217,9 +227,11 @@ export class Game extends BaseGame {
       if (!p || !p.hasBet || p.sitOut || p.bet <= 0 || p.done) continue;
       this.turnIndex = idx;
       if (!p.connected && !p.isBot) { this.stand(p.id); return; } // dropped → stand
+      this.armDeadline();                                         // start this seat's clock
       return;
     }
     this.turnIndex = -1;
+    this.turnDeadline = null;
     this.dealerPlay();
   }
 
@@ -346,6 +358,38 @@ export class Game extends BaseGame {
     return {};
   }
 
+  // Host sets the per-turn clock (seconds; 0 = no clock) before the game starts.
+  setConfig(id, msg) {
+    if (id !== this.hostId) return { error: 'Only the host can change table settings.' };
+    if (this.phase !== 'lobby') return { error: 'Settings are locked once the game starts.' };
+    const s = Number(msg.turnSeconds);
+    if (TURN_OPTIONS.includes(s)) this.config.turnSeconds = s;
+    return {};
+  }
+
+  // Called by the server when the current clock runs out. Auto-resolves so a
+  // slow or absent player never freezes the table.
+  timeout() {
+    if (this.turnDeadline == null) return {};
+    if (Date.now() < this.turnDeadline) return {};   // spurious — clock still live
+    if (this.phase === 'betting') {
+      // Everyone who hasn't wagered folds this hand (keeps their chips).
+      for (const p of this.players) {
+        if (p.out || p.hasBet) continue;
+        p.sitOut = true; p.hasBet = true; p.bet = 0;
+      }
+      this.turnDeadline = null;
+      this.maybeDeal();
+      return {};
+    }
+    if (this.phase === 'player') {
+      const p = this.current();
+      if (p) this.stand(p.id);   // out of time → stand pat
+      return {};
+    }
+    return {};
+  }
+
   // ---- message router ------------------------------------------------------
   handleMessage(playerId, msg) {
     switch (msg.t) {
@@ -355,6 +399,7 @@ export class Game extends BaseGame {
       case 'stand':  return this.stand(playerId);
       case 'double': return this.double(playerId);
       case 'next':   return this.next(playerId);
+      case 'config': return this.setConfig(playerId, msg);
       default:       return { error: 'Unknown action.' };
     }
   }
@@ -405,6 +450,10 @@ export class Game extends BaseGame {
     return {
       phase: this.phase,
       config: this.config,
+      turnSeconds: this.config.turnSeconds,
+      // Milliseconds left on the current clock, from now — the client counts
+      // down locally from this, so clock skew never matters.
+      turnEndsInMs: this.turnDeadline != null ? Math.max(0, this.turnDeadline - Date.now()) : null,
       roundNo: this.roundNo,
       shoeCount: this.shoe.length,
       turn: this.current()?.id ?? null,

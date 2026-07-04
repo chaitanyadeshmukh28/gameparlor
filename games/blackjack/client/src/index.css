@@ -2,81 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Blackjack — midnight art-deco casino: emerald baize, gilt rails, ivory cards. */
+/* Blackjack — "Lacquer & Bone": black lacquer, champagne brass, bone cards,
+   one vermillion accent. Numbers are tabular mono (the count). */
 :root { color-scheme: dark; }
 * { -webkit-tap-highlight-color: transparent; }
 html, body, #root { height: 100%; }
 body {
   margin: 0;
   font-family: theme('fontFamily.body');
-  color: #f1ead7;
+  color: #f1e9d6;
   background:
-    radial-gradient(130% 90% at 50% -8%, #0e4a35 0%, #0a3d2c 40%, #052a1f 78%, #04211a 100%),
-    #04211a;
+    radial-gradient(120% 85% at 50% -6%, #221a13 0%, #15100d 46%, #0d0a08 100%),
+    #0d0a08;
   overflow-x: hidden;
 }
 
-/* Felt weave — a fine diagonal texture on the baize, plus a soft table vignette. */
-.felt-bg::before {
+/* A faint lacquered sheen + brass grain, masked to a stage vignette. */
+.lacquer-bg::before {
   content: '';
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image:
-    repeating-linear-gradient(45deg, rgba(255,255,255,0.014) 0 2px, transparent 2px 5px),
-    repeating-linear-gradient(-45deg, rgba(0,0,0,0.05) 0 2px, transparent 2px 5px);
-  background-size: 7px 7px;
-  mask-image: radial-gradient(120% 100% at 50% 30%, #000 55%, transparent 100%);
-}
-/* A gilt spotlight arc that centres the table. */
-.felt-bg::after {
-  content: '';
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: radial-gradient(60% 44% at 50% 30%, rgba(232,200,119,0.10), transparent 70%);
+    repeating-linear-gradient(115deg, rgba(217,178,106,0.03) 0 1px, transparent 1px 3px),
+    radial-gradient(70% 50% at 50% 24%, rgba(217,178,106,0.10), transparent 68%);
+  mask-image: radial-gradient(130% 100% at 50% 24%, #000 60%, transparent 100%);
 }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.tnum { font-variant-numeric: tabular-nums; }
 
 @layer components {
   .eyebrow {
-    @apply text-[0.6rem] uppercase tracking-[0.32em] text-gild/70 font-body;
+    @apply text-[0.58rem] uppercase tracking-[0.34em] text-brass/70 font-body;
   }
-  .gild-text {
-    background: linear-gradient(96deg, #f6e2a6, #e8c877 42%, #c99a3f 74%, #f4dfa0);
+  .brass-text {
+    background: linear-gradient(96deg, #f0d79a, #d9b26a 44%, #a9843f 76%, #f0d79a);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  /* Deco panel with a hairline gold rule. */
+  /* Lacquer panel with a hairline brass rule. */
   .panel {
-    @apply rounded-2xl border border-gild/25 bg-felt-rail/70 backdrop-blur-sm;
+    @apply rounded-2xl border border-brass/25 bg-walnut/70 backdrop-blur-sm;
     box-shadow: theme('boxShadow.rail');
   }
   .field {
-    @apply w-full rounded-xl bg-felt-deep/70 border border-gild/25 px-4 py-3 text-ivory
-           placeholder:text-moss/60 outline-none transition
-           focus:border-gild/70 focus:ring-2 focus:ring-gild/25;
+    @apply w-full rounded-xl bg-obsidian-deep/80 border border-brass/25 px-4 py-3 text-bone
+           placeholder:text-sand/50 outline-none transition
+           focus:border-brass/70 focus:ring-2 focus:ring-brass/25;
   }
-  .btn-gild {
-    @apply rounded-xl px-4 py-3 font-semibold tracking-wide text-felt-rail transition
+  .btn-brass {
+    @apply rounded-xl px-4 py-3 font-semibold tracking-wide text-obsidian transition
            disabled:opacity-40 disabled:cursor-not-allowed;
-    background: linear-gradient(180deg, #f6e2a6, #e8c877 55%, #c99a3f);
-    box-shadow: 0 6px 16px -6px rgba(232,200,119,0.6), 0 1px 0 rgba(255,255,255,0.5) inset;
+    background: linear-gradient(180deg, #f0d79a, #d9b26a 55%, #a9843f);
+    box-shadow: 0 6px 16px -6px rgba(217,178,106,0.55), 0 1px 0 rgba(255,255,255,0.4) inset;
   }
-  .btn-gild:not(:disabled):hover { filter: brightness(1.06); }
-  .btn-gild:not(:disabled):active { transform: translateY(1px); }
+  .btn-brass:not(:disabled):hover { filter: brightness(1.07); }
+  .btn-brass:not(:disabled):active { transform: translateY(1px); }
   .btn-ghost {
-    @apply rounded-xl px-4 py-3 font-semibold tracking-wide border border-gild/35
-           text-gild/90 bg-felt-raised/40 transition
-           hover:bg-felt-raised/70 disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply rounded-xl px-4 py-3 font-semibold tracking-wide border border-brass/35
+           text-brass/90 bg-walnut-raised/40 transition
+           hover:bg-walnut-raised/80 disabled:opacity-40 disabled:cursor-not-allowed;
   }
   .btn-act {
-    @apply rounded-xl px-4 py-3 font-semibold tracking-wide border transition
-           disabled:opacity-30 disabled:cursor-not-allowed select-none;
+    @apply rounded-xl px-3 py-3 font-semibold tracking-wide border transition
+           disabled:opacity-30 disabled:cursor-not-allowed select-none active:translate-y-px;
   }
-  .chip-btn {
-    @apply grid place-items-center rounded-full font-body font-bold text-[0.7rem]
-           border-2 border-dashed transition active:scale-95 disabled:opacity-30;
+  .seg {
+    @apply rounded-lg px-2.5 py-1.5 text-xs font-semibold border transition;
   }
 }
 
+@keyframes pulse-brass { 0%,100% { opacity: 0.55 } 50% { opacity: 1 } }
+.pulse-brass { animation: pulse-brass 1.1s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
