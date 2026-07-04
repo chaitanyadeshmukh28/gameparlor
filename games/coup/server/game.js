@@ -23,6 +23,11 @@ const shuffle = (arr) => {
   return arr;
 };
 
+// Each decision (your turn, a challenge/block window, losing influence, an
+// exchange) is on a 10-second clock. When it expires the server auto-resolves
+// with a safe default so an idle player never stalls the table.
+const TURN_MS = 10000;
+
 export class CoupGame {
   constructor(code) {
     this.code = code;
@@ -35,6 +40,7 @@ export class CoupGame {
     this.pendingLoss = null;        // {playerId, then}
     this.pendingExchange = null;     // {playerId, cards:[chars], keep:int}
     this.pendingReplace = null;      // {playerId, char} deferred challenge-win redraw
+    this.turnDeadline = null;        // epoch ms the current decision expires (null = no clock)
     this.winner = null;
     this.log = [];
     this.seq = 0;                    // increments on every state change
@@ -101,6 +107,7 @@ export class CoupGame {
     this.phase = 'turn';
     this.pending = this.pendingLoss = this.pendingExchange = null;
     this.winner = null;
+    this.armClock();
     this.note(`The game begins. ${this.current().name} acts first.`);
     return {};
   }
@@ -109,6 +116,7 @@ export class CoupGame {
     if (id !== this.hostId) return { error: 'Only the host can return to the lobby.' };
     this.phase = 'lobby';
     this.pending = this.pendingLoss = this.pendingExchange = null;
+    this.clearClock();
     this.winner = null;
     this.deck = [];
     this.turnIndex = 0;
@@ -125,6 +133,8 @@ export class CoupGame {
   isAlive(p) { return this.alive(p) > 0; }
   hasCard(p, char) { return p.influence.some((c) => !c.revealed && c.char === char); }
   note(text) { this.log.push({ text, ts: this.seq }); if (this.log.length > 120) this.log.shift(); }
+  armClock() { this.turnDeadline = Date.now() + TURN_MS; }   // (re)start the 10s clock
+  clearClock() { this.turnDeadline = null; }
 
   replaceCard(p, char) {
     const idx = p.influence.findIndex((c) => !c.revealed && c.char === char);
@@ -195,6 +205,7 @@ export class CoupGame {
       pd._responders = this.players.filter((p) => this.isAlive(p) && p.id !== pd.block.blocker).map((p) => p.id);
     }
     this.phase = 'response';
+    this.armClock();
     // Auto-pass disconnected responders so the table never stalls on an absentee.
     pd._responders = pd._responders.filter((rid) => {
       const p = this.byId(rid);
@@ -225,6 +236,7 @@ export class CoupGame {
     if (kind === 'pass') {
       pd._responders = pd._responders.filter((r) => r !== id);
       if (pd._responders.length === 0) this.onAllPass();
+      else this.armClock();          // remaining responders get a fresh clock
       return {};
     }
 
@@ -321,6 +333,7 @@ export class CoupGame {
         const aliveCards = actor.influence.filter((c) => !c.revealed).map((c) => c.char);
         this.pendingExchange = { playerId: actor.id, cards: [...aliveCards, ...drawn], keep: aliveCards.length };
         this.phase = 'exchange';
+        this.armClock();
         this.note(`${actor.name} exchanges with the court deck.`);
         return {};
       }
@@ -372,6 +385,7 @@ export class CoupGame {
     }
     this.pendingLoss = { playerId, then };
     this.phase = 'lose';
+    this.armClock();
     return {};
   }
 
@@ -420,6 +434,7 @@ export class CoupGame {
       this.phase = 'over';
       this.winner = living[0]?.id ?? null;
       this.pending = this.pendingLoss = this.pendingExchange = this.pendingReplace = null;
+      this.clearClock();
       if (this.winner) this.note(`${this.byId(this.winner).name} is the last one standing. Victory!`);
       return true;
     }
@@ -436,8 +451,55 @@ export class CoupGame {
     }
     this.turnIndex = next;
     this.phase = 'turn';
+    this.armClock();
     this.note(`It is ${this.current().name}'s turn.`);
     return {};
+  }
+
+  // ---- turn clock ----------------------------------------------------------
+  // Called by the server when the 10s clock expires. Auto-resolves whoever is on
+  // the clock with a safe, minimal default so an idle player never stalls play.
+  timeout() {
+    if (this.turnDeadline == null || Date.now() < this.turnDeadline) return {};
+    switch (this.phase) {
+      case 'turn':     return this.autoAct();
+      case 'response': return this.autoPass();
+      case 'lose':     return this.autoLose();
+      case 'exchange': return this.autoKeep();
+      default:         return {};
+    }
+  }
+
+  autoAct() {                                  // your turn ran out → take Income
+    const actor = this.current();
+    if (!actor) return {};
+    if (actor.coins >= 10) {                    // 10+ coins forces a coup
+      const target = this.players.find((p) => this.isAlive(p) && p.id !== actor.id);
+      if (target) return this.declare(actor.id, 'coup', target.id);
+    }
+    return this.declare(actor.id, 'income');
+  }
+
+  autoPass() {                                 // a challenge/block window ran out → pass
+    let guard = 0;
+    while (this.phase === 'response' && this.pending && this.pending._responders.length && guard++ < 16) {
+      this.respond(this.pending._responders[0], 'pass');
+    }
+    return {};
+  }
+
+  autoLose() {                                 // choose-a-card ran out → drop the first
+    const pl = this.pendingLoss;
+    if (!pl) return {};
+    const p = this.byId(pl.playerId);
+    const idx = p.influence.findIndex((c) => !c.revealed);
+    return this.loseInfluence(pl.playerId, idx);
+  }
+
+  autoKeep() {                                 // exchange ran out → keep your first cards
+    const ex = this.pendingExchange;
+    if (!ex) return {};
+    return this.finishExchange(ex.playerId, Array.from({ length: ex.keep }, (_, i) => i));
   }
 
   // Unified message dispatch (the server routes all in-game actions here).
@@ -525,6 +587,10 @@ export class CoupGame {
         : null,
       deckCount: this.deck.length,
       charCounts,
+      // Turn clock: seconds allotted, and ms left from now (client counts down
+      // locally, so clock skew never matters). Null when no clock is running.
+      turnSeconds: TURN_MS / 1000,
+      turnEndsInMs: this.turnDeadline != null ? Math.max(0, this.turnDeadline - Date.now()) : null,
       seq: this.seq,
       players: this.players.map((p) => ({
         id: p.id,

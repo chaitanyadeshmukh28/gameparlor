@@ -251,5 +251,41 @@ function newGame() {
   ok(g.pending.block && g.pending.block.blocker === 'b', 'the target’s Contessa block is registered');
 })();
 
+// Turn clock — an idle turn auto-takes Income.
+(() => {
+  const g = newGame();
+  ok(g.turnDeadline != null, 'a turn clock is armed at game start');
+  ok(g.viewFor('a').turnEndsInMs > 0 && g.viewFor('a').turnSeconds === 10, 'the view exposes the 10s clock');
+  const who = g.current().id;
+  g.turnDeadline = Date.now() - 1;                 // force the clock expired
+  g.timeout();
+  ok(g.byId(who).coins === 3, 'an idle turn auto-takes Income (2 → 3)');
+  ok(g.current().id !== who, 'the turn advances after the auto-action');
+})();
+
+// Turn clock — an idle challenge/block window auto-passes; the action resolves.
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  g.declare('a', 'tax');
+  ok(g.phase === 'response' && g.turnDeadline != null, 'a response window arms the clock');
+  g.turnDeadline = Date.now() - 1;
+  g.timeout();
+  ok(g.byId('a').coins === 5, 'an unchallenged tax resolves when the window times out');
+})();
+
+// Turn clock — an idle "lose influence" choice drops the first card.
+(() => {
+  const g = newGame();
+  setHand(g, 'Ann', ['duke', 'captain']);
+  setHand(g, 'Bo', ['contessa', 'ambassador']);
+  g.byId('a').coins = 7;
+  g.declare('a', 'coup', 'b');
+  ok(g.phase === 'lose' && g.pendingLoss.playerId === 'b', 'a coup forces the target to choose a card');
+  g.turnDeadline = Date.now() - 1;
+  g.timeout();
+  ok(g.byId('b').influence.filter((c) => c.revealed).length === 1, 'the idle target auto-drops one card');
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

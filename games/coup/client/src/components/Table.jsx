@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Card from './Card.jsx';
 import PlayerSeat, { Coins } from './PlayerSeat.jsx';
@@ -98,6 +98,7 @@ export default function Table({ state, code, send, error }) {
 
           {/* Active prompt */}
           <div className="min-w-0">
+            <TurnClock state={state} />
             <AnimatePresence mode="wait">
               <Prompt key={promptKey(state)} state={state} me={me} myTurn={myTurn} send={send} choose={choose} />
             </AnimatePresence>
@@ -109,6 +110,59 @@ export default function Table({ state, code, send, error }) {
       <Toast error={error} />
     </div>
   );
+}
+
+// A slim 10-second countdown for whoever is on the clock. Counts down locally
+// from the server's turnEndsInMs (so clock skew never matters) and re-syncs on
+// every state update. Hidden when no clock is running (lobby / game over).
+function TurnClock({ state }) {
+  const total = (state.turnSeconds || 10) * 1000;
+  const endAt = useRef(null);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    endAt.current = state.turnEndsInMs != null ? Date.now() + state.turnEndsInMs : null;
+    tick((n) => n + 1);
+  }, [state.turnEndsInMs, state.turn, state.phase]);
+
+  useEffect(() => {
+    if (state.turnEndsInMs == null) return;
+    const id = setInterval(() => tick((n) => n + 1), 200);
+    return () => clearInterval(id);
+  }, [state.turnEndsInMs == null, state.turn, state.phase]);
+
+  if (endAt.current == null) return null;
+  const msLeft = Math.max(0, endAt.current - Date.now());
+  const secs = Math.ceil(msLeft / 1000);
+  const frac = Math.max(0, Math.min(1, msLeft / total));
+  const urgent = secs <= 3;
+
+  return (
+    <div className="mb-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-mono text-[0.58rem] uppercase tracking-[0.2em] text-parch-faint">{clockLabel(state)}</span>
+        <span className={`font-mono text-xs font-bold tabular-nums ${urgent ? 'text-assassin' : 'text-parch'}`}>{secs}s</span>
+      </div>
+      <div className="h-1 rounded-full bg-parch/10 overflow-hidden">
+        <div className={`h-full ${urgent ? 'bg-assassin' : 'bg-gilt'}`}
+          style={{ width: `${frac * 100}%`, transition: 'width 0.2s linear' }} />
+      </div>
+    </div>
+  );
+}
+
+const nameOf = (state, id) => state.players.find((p) => p.id === id)?.name || 'someone';
+function clockLabel(state) {
+  const you = state.you;
+  if (state.phase === 'turn')
+    return state.turn === you ? 'Your turn — act fast' : `${nameOf(state, state.turn)} to act`;
+  if (state.phase === 'response')
+    return (state.pending?.responders || []).includes(you) ? 'Your call — challenge, block or pass' : 'Awaiting responses';
+  if (state.phase === 'lose')
+    return state.pendingLoss?.playerId === you ? 'Choose a card to lose' : `${nameOf(state, state.pendingLoss?.playerId)} loses influence`;
+  if (state.phase === 'exchange')
+    return state.exchange ? 'Your exchange' : `${nameOf(state, state.turn)} exchanging`;
+  return 'Time left';
 }
 
 function promptKey(state) {
